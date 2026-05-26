@@ -1,0 +1,29 @@
+# Node / Electron
+node_modules/
+dist/
+out/
+*.log
+npm-debug.log*
+
+# Build artifacts
+build/icon-1024.png
+build/icon-square.png
+build/raw-icon-converted.png
+build/icon.iconset/
+
+# OS
+.DS_Store
+Thumbs.db
+
+# Editors
+.idea/
+.vscode/
+*.swp
+
+# Test / repro
+lumen/tests/repro/observed-baseline.log
+lumen/tests/repro/observed-counterexample.log
+
+# Local env
+.env
+.env.local

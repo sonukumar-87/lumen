@@ -1,0 +1,74 @@
+{
+  "name": "lumen",
+  "version": "0.3.0",
+  "description": "Privacy-first AI overlay assistant (Cluely-ish, fully local key storage)",
+  "author": "Lumen",
+  "main": "main.js",
+  "scripts": {
+    "start": "electron .",
+    "dev": "electron . --enable-logging",
+    "test": "vitest run",
+    "dist": "electron-builder --mac --arm64 --x64",
+    "dist:arm": "electron-builder --mac --arm64",
+    "dist:intel": "electron-builder --mac --x64"
+  },
+  "devDependencies": {
+    "electron": "^32.0.0",
+    "electron-builder": "^25.1.8",
+    "fast-check": "^3.23.2",
+    "vitest": "^2.1.9"
+  },
+  "build": {
+    "appId": "app.lumen.overlay",
+    "productName": "Lumen",
+    "asar": true,
+    "files": [
+      "main.js",
+      "preload.js",
+      "renderer/**/*",
+      "package.json"
+    ],
+    "directories": {
+      "output": "dist",
+      "buildResources": "build"
+    },
+    "mac": {
+      "category": "public.app-category.productivity",
+      "target": [
+        {
+          "target": "dmg",
+          "arch": [
+            "arm64",
+            "x64"
+          ]
+        }
+      ],
+      "hardenedRuntime": true,
+      "gatekeeperAssess": false,
+      "entitlements": "build/entitlements.mac.plist",
+      "entitlementsInherit": "build/entitlements.mac.plist",
+      "extendInfo": {
+        "NSMicrophoneUsageDescription": "Lumen uses the microphone to transcribe what you say into a text prompt for the AI.",
+        "NSCameraUsageDescription": "Lumen does not use the camera.",
+        "NSScreenCaptureUsageDescription": "Lumen captures a single screen frame when you press the Screenshot button so you can ask the AI about what's on your screen."
+      },
+      "icon": "build/icon.icns"
+    },
+    "dmg": {
+      "title": "Lumen ${version}",
+      "iconSize": 96,
+      "contents": [
+        {
+          "x": 130,
+          "y": 220
+        },
+        {
+          "x": 410,
+          "y": 220,
+          "type": "link",
+          "path": "/Applications"
+        }
+      ]
+    }
+  }
+}
