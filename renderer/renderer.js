@@ -58,7 +58,13 @@ async function isValidLicense(key) {
   btn.addEventListener('click', tryKey);
   inp.addEventListener('keydown', (e) => { if (e.key === 'Enter') { e.preventDefault(); tryKey(); } });
   const liBtn = document.getElementById('license-linkedin');
-  if (liBtn) liBtn.addEventListener('click', () => window.open('https://www.linkedin.com/in/sonu-kumar-99a860354', '_blank', 'noopener'));
+  if (liBtn) liBtn.addEventListener('click', () => {
+    const a = document.createElement('a');
+    a.href = 'https://www.linkedin.com/in/sonu-kumar-99a860354';
+    a.target = '_blank';
+    a.rel = 'noopener';
+    document.body.appendChild(a); a.click(); a.remove();
+  });
 })();
 
 const L = window.lumen || {
