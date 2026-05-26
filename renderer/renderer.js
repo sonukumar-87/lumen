@@ -57,6 +57,8 @@ async function isValidLicense(key) {
   }
   btn.addEventListener('click', tryKey);
   inp.addEventListener('keydown', (e) => { if (e.key === 'Enter') { e.preventDefault(); tryKey(); } });
+  const liBtn = document.getElementById('license-linkedin');
+  if (liBtn) liBtn.addEventListener('click', () => window.open('https://www.linkedin.com/in/sonu-kumar-99a860354', '_blank', 'noopener'));
 })();
 
 const L = window.lumen || {
