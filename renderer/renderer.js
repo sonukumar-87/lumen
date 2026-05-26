@@ -3,6 +3,62 @@
 // `window.lumen` (from preload) is available in Electron; in a plain browser
 // we fall back to no-ops so the same file still works.
 
+// ── License gate ────────────────────────────────────────────────────────────
+// Lightweight invite-only check. Hashes are SHA-256(salt + key). Valid keys
+// are NOT in source — only their hashes — so reading the bundle doesn't reveal
+// them. To revoke a key, ship a new build with that hash removed.
+//
+// Honest disclosure: this is a deterrent against casual sharing, not a real
+// security boundary. A determined user can patch the JS to bypass the gate.
+// For real protection, route AI calls through a server that validates keys.
+const LICENSE_SALT = 'lumen-v1-salt-92Xk7pQz';
+const LICENSE_HASHES = new Set([
+  '35341d86a090e54c28d3c549604f904ee2b524007ec2e90f9a30add07926403e',
+  '3caa06c590f12a0807bbfa6f13fad25a4a2e9a70dd8fbdb927bb628307e9f5e7',
+  '0afb3724b397c85c1cb773dc7f940ca1fbfee3d7127643be176f74c44ef76f49',
+  '06603388fbd9e1c1227c96319c0214c30ac99511f431a5559b2805fedc7ab16f',
+  'bdac859dbdedf932d552287e999ed2cd1c8a9ffdc273226d990350ed07751d39',
+]);
+const LICENSE_KEY_STORAGE = 'lumen.license';
+
+async function sha256Hex(s) {
+  const buf = await crypto.subtle.digest('SHA-256', new TextEncoder().encode(s));
+  return Array.from(new Uint8Array(buf)).map(b => b.toString(16).padStart(2, '0')).join('');
+}
+
+async function isValidLicense(key) {
+  if (!key) return false;
+  const h = await sha256Hex(LICENSE_SALT + key.trim().toUpperCase());
+  return LICENSE_HASHES.has(h);
+}
+
+(async function gateBoot() {
+  const stored = localStorage.getItem(LICENSE_KEY_STORAGE);
+  if (stored && await isValidLicense(stored)) return; // unlocked
+
+  // Show gate, block until a valid key is entered.
+  const gate = document.getElementById('license-gate');
+  const inp  = document.getElementById('license-input');
+  const err  = document.getElementById('license-error');
+  const btn  = document.getElementById('license-submit');
+  if (!gate || !inp || !btn) return; // safety: gate markup missing
+  gate.hidden = false;
+  inp.focus();
+
+  async function tryKey() {
+    const k = (inp.value || '').trim().toUpperCase();
+    if (await isValidLicense(k)) {
+      localStorage.setItem(LICENSE_KEY_STORAGE, k);
+      gate.hidden = true;
+    } else {
+      if (err) err.textContent = 'Invalid key. Please try again.';
+      inp.select();
+    }
+  }
+  btn.addEventListener('click', tryKey);
+  inp.addEventListener('keydown', (e) => { if (e.key === 'Enter') { e.preventDefault(); tryKey(); } });
+})();
+
 const L = window.lumen || {
   platform: 'browser',
   quit() {}, hide() {}, minimize() {}, show() {},
