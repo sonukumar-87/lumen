@@ -944,23 +944,6 @@
   <!-- Hidden file picker for the Attach pill -->
   <input type="file" id="attach-input" accept="image/*" style="display:none" />
 
-  <!-- License gate (shown until a valid key is entered) -->
-  <div id="license-gate" hidden style="position:fixed;inset:0;z-index:99999;background:rgba(8,10,16,0.96);display:flex;align-items:center;justify-content:center;-webkit-backdrop-filter:blur(28px);backdrop-filter:blur(28px);">
-    <div style="max-width:420px;width:90%;padding:28px 26px;border:1px solid var(--border);border-radius:14px;background:var(--bg-1);text-align:center;">
-      <div style="font-size:28px;margin-bottom:10px;color:var(--accent);">△</div>
-      <h2 style="margin:0 0 6px;font-size:18px;color:var(--fg);">Welcome to Lumen</h2>
-      <p style="margin:0 0 18px;color:var(--muted);font-size:12.5px;line-height:1.55;">This build is invite-only. Enter your license key to continue.</p>
-      <input id="license-input" placeholder="LUM-XXXX-XXXX-XXXX" autocomplete="off" spellcheck="false" onkeydown="if(event.key==='Enter'){event.preventDefault();window.__lumenTryKey();}" style="width:100%;padding:10px 12px;font:inherit;font-size:14px;letter-spacing:0.5px;text-align:center;background:var(--bg-2);border:1px solid var(--border);border-radius:10px;color:var(--fg);" />
-      <div id="license-error" style="margin-top:10px;color:var(--danger);font-size:11.5px;min-height:14px;"></div>
-      <button id="license-submit" class="btn primary" onclick="window.__lumenTryKey();" style="margin-top:14px;width:100%;padding:9px 12px;border-radius:10px;">Activate</button>
-      <p style="margin:14px 0 0;color:var(--muted-2);font-size:11px;">Need a key? Contact the developer.</p>
-      <button id="license-linkedin" class="brand-btn linkedin" type="button" onclick="window.__lumenOpenLinkedIn();" style="margin-top:10px;width:100%;justify-content:center;">
-        <svg viewBox="0 0 24 24" fill="currentColor" aria-hidden="true"><path d="M20.45 20.45h-3.56v-5.57c0-1.33-.02-3.04-1.85-3.04-1.85 0-2.13 1.45-2.13 2.94v5.67H9.36V9h3.41v1.56h.05c.48-.91 1.65-1.85 3.4-1.85 3.63 0 4.3 2.39 4.3 5.5v6.24zM5.34 7.43a2.06 2.06 0 1 1 0-4.12 2.06 2.06 0 0 1 0 4.12zM7.12 20.45H3.56V9h3.56v11.45zM22.22 0H1.77C.79 0 0 .77 0 1.72v20.55C0 23.23.79 24 1.77 24h20.45c.98 0 1.78-.77 1.78-1.73V1.72C24 .77 23.2 0 22.22 0z"/></svg>
-        <span>Get a key on LinkedIn</span>
-      </button>
-    </div>
-  </div>
-
   <!-- Hotkeys modal -->
   <div id="hotkeys-modal" class="modal-backdrop" hidden>
     <div class="modal">
