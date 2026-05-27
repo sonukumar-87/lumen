@@ -941,19 +941,17 @@ function stopWhisper() {
 // WHISPER CHUNK PIPELINE
 // ─────────────────────────────────────────────────────────────────────────────
 // Whisper hallucinates short phrases like "Thank you" / "Thanks for watching"
-// when fed near-silent audio. Filter them out so they don't pollute transcripts.
+// when fed near-silent audio. Filter ONLY exact-match common hallucinations,
+// not by length (short real words like "yes" / "ok" are fine).
 const HALLUCINATIONS = new Set([
-  'thank you', 'thanks', 'thanks for watching', 'thanks for watching!',
-  'thank you.', 'thank you!', 'you', '.', '...', 'bye', 'okay', 'ok',
-  'mm-hmm.', 'mm-hmm', 'uh', 'um', 'subtitles by the amara.org community',
-  'please subscribe', 'like and subscribe', 'thanks for watching!',
+  'thanks for watching', 'thanks for watching!',
+  'subtitles by the amara.org community',
+  'please subscribe', 'like and subscribe',
 ]);
 function filterHallucinations(text) {
   if (!text) return '';
-  const norm = text.trim().toLowerCase();
+  const norm = text.trim().toLowerCase().replace(/[.!,?]+$/, '');
   if (HALLUCINATIONS.has(norm)) return '';
-  // Also filter very short outputs (1-3 chars) which are usually noise.
-  if (text.trim().length <= 3) return '';
   return text;
 }
 
