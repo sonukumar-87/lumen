@@ -24,13 +24,11 @@ function initLicenseGate() {
     const gate = document.getElementById('license-gate');
     const inp  = document.getElementById('license-input');
     const err  = document.getElementById('license-error');
-    const btn  = document.getElementById('license-submit');
-    const liBtn = document.getElementById('license-linkedin');
-    if (!gate || !inp || !btn) return;
+    if (!gate || !inp) return;
     gate.hidden = false;
     setTimeout(() => inp.focus(), 50);
 
-    function tryKey() {
+    window.__lumenTryKey = function () {
       const k = (inp.value || '').trim().toUpperCase();
       if (isValidLicense(k)) {
         localStorage.setItem(LICENSE_KEY_STORAGE, k);
@@ -39,10 +37,8 @@ function initLicenseGate() {
         if (err) err.textContent = 'Invalid key. Please try again.';
         inp.select();
       }
-    }
-    btn.onclick = tryKey;
-    inp.onkeydown = (e) => { if (e.key === 'Enter') { e.preventDefault(); tryKey(); } };
-    if (liBtn) liBtn.onclick = () => {
+    };
+    window.__lumenOpenLinkedIn = function () {
       const a = document.createElement('a');
       a.href = 'https://www.linkedin.com/in/sonu-kumar-99a860354';
       a.target = '_blank'; a.rel = 'noopener';
