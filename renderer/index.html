@@ -23,6 +23,8 @@
     --border:rgba(255,255,255,0.07);
     --border-2:rgba(255,255,255,0.04);
     --code-bg:rgba(255,255,255,0.06);
+    --chat-font: 12.5px;
+    --chat-meta-font: 10px;
   }
   * { box-sizing: border-box; }
   html, body { margin: 0; height: 100%; overflow: hidden; }
@@ -285,13 +287,14 @@
   .msg {
     padding:9px 11px; border-radius:11px;
     max-width:calc(100% - 32px); white-space:pre-wrap; word-wrap:break-word;
-    font-size:12.5px;
+    font-size: var(--chat-font);
+    line-height:1.5;
   }
   .msg.user      { background:rgba(122,162,255,0.12); border:1px solid rgba(122,162,255,0.28); }
   .msg.assistant { background:var(--bg-2); border:1px solid var(--border); }
   .msg-meta {
     display:flex; gap:6px; align-items:center;
-    color:var(--muted-2); font-size:10px; padding:2px 4px 0;
+    color:var(--muted-2); font-size: var(--chat-meta-font); padding:2px 4px 0;
   }
   .msg-row.user .msg-meta { justify-content:flex-end; }
   .msg-actions { display:inline-flex; gap:6px; margin-top:6px; opacity:0.7; }
@@ -599,6 +602,8 @@
       <span id="opacity-badge" class="opacity-badge" title="Window opacity">100%</span>
       <input type="range" id="opacity" class="opacity-slider" min="20" max="100" step="1" value="100" title="Drag to set window opacity (⌘⇧O cycles 100/70/40)" />
       <button id="hotkeys-btn" title="Show hotkeys (?)">?</button>
+      <button id="zoom-out" title="Decrease chat font (⌘−)">A−</button>
+      <button id="zoom-in" title="Increase chat font (⌘+)">A+</button>
       <button id="btn-min" title="Minimize">–</button>
       <button id="btn-close" class="close" title="Hide (⌘⇧Space to bring back)">×</button>
     </div>
@@ -956,6 +961,8 @@
         <tr><td class="k"><kbd>⌘⇧↑↓←→</kbd></td><td class="v">Move window</td></tr>
         <tr><td class="k"><kbd>⌘⏎</kbd></td><td class="v">Send message</td></tr>
         <tr><td class="k"><kbd>⌘K</kbd></td><td class="v">Clear chat</td></tr>
+        <tr><td class="k"><kbd>⌘+</kbd> / <kbd>⌘−</kbd></td><td class="v">Zoom chat text in / out</td></tr>
+        <tr><td class="k"><kbd>⌘0</kbd></td><td class="v">Reset chat zoom</td></tr>
         <tr><td class="k"><kbd>?</kbd></td><td class="v">Show this dialog</td></tr>
         <tr><td class="k"><kbd>Esc</kbd></td><td class="v">Close dialog / cancel screenshot</td></tr>
       </table>

@@ -138,6 +138,21 @@ let inFlight = 0;
 let stopped = false;
 let chunkRotateTimer = null;
 let errored = false;
+// Silence detection — Whisper hallucinates ("Thank you", "E aí", etc.) when
+// fed near-silent audio. We measure RMS of the live mic stream and refuse
+// to POST chunks whose peak RMS over the chunk window is below threshold.
+let audioCtx = null;
+let analyserNode = null;
+let rmsSampleTimer = null;
+let currentChunkPeakRMS = 0;
+const SILENCE_RMS_DEFAULT = 0.018;
+function readSilenceThreshold() {
+  const raw = localStorage.getItem('lumen.whisper.silenceRms');
+  if (raw == null || raw === '') return SILENCE_RMS_DEFAULT;
+  const n = Number(raw);
+  if (!Number.isFinite(n) || n < 0 || n > 1) return SILENCE_RMS_DEFAULT;
+  return n;
+}
 
 // ── Model defaults & vision swaps ───────────────────────────────────────────
 const TEXT_DEFAULTS   = { groq: 'llama-3.3-70b-versatile', gemini: 'gemini-2.0-flash-lite', ollama: 'llama3.2' };
@@ -367,7 +382,57 @@ if (opacitySlider) {
 }
 L.onOpacityCycle(cycleOpacity);
 
-// Hotkeys modal
+// ── Chat zoom (A− / A+ / ⌘+ / ⌘− / ⌘0) ───────────────────────────────────
+const CHAT_ZOOM_KEY = 'lumen.chatZoom';
+const CHAT_ZOOM_MIN = 10;
+const CHAT_ZOOM_MAX = 22;
+const CHAT_ZOOM_DEFAULT = 12.5;
+
+function loadChatZoom() {
+  const raw = localStorage.getItem(CHAT_ZOOM_KEY);
+  const n = Number(raw);
+  if (Number.isFinite(n) && n >= CHAT_ZOOM_MIN && n <= CHAT_ZOOM_MAX) return n;
+  return CHAT_ZOOM_DEFAULT;
+}
+
+function applyChatZoom(px) {
+  const n = Math.max(CHAT_ZOOM_MIN, Math.min(CHAT_ZOOM_MAX, Number(px) || CHAT_ZOOM_DEFAULT));
+  document.documentElement.style.setProperty('--chat-font', n + 'px');
+  // Keep the timestamp/meta line proportional (~80% of body).
+  document.documentElement.style.setProperty('--chat-meta-font', (n * 0.8).toFixed(2) + 'px');
+  localStorage.setItem(CHAT_ZOOM_KEY, String(n));
+  return n;
+}
+
+let currentChatZoom = applyChatZoom(loadChatZoom());
+
+function bumpChatZoom(delta) {
+  currentChatZoom = applyChatZoom(currentChatZoom + delta);
+}
+
+function resetChatZoom() {
+  currentChatZoom = applyChatZoom(CHAT_ZOOM_DEFAULT);
+}
+
+const zoomInBtn = $('zoom-in');
+const zoomOutBtn = $('zoom-out');
+if (zoomInBtn) zoomInBtn.addEventListener('click', () => bumpChatZoom(+1));
+if (zoomOutBtn) zoomOutBtn.addEventListener('click', () => bumpChatZoom(-1));
+
+// ⌘+ / ⌘= / ⌘− / ⌘0 keyboard shortcuts. Use code-based keys so layout
+// quirks (= vs +, with/without shift) still work.
+window.addEventListener('keydown', (e) => {
+  if (!(e.metaKey || e.ctrlKey)) return;
+  if (e.key === '+' || e.key === '=' || e.code === 'Equal' || e.code === 'NumpadAdd') {
+    e.preventDefault(); bumpChatZoom(+1);
+  } else if (e.key === '-' || e.key === '_' || e.code === 'Minus' || e.code === 'NumpadSubtract') {
+    e.preventDefault(); bumpChatZoom(-1);
+  } else if (e.key === '0' || e.code === 'Digit0' || e.code === 'Numpad0') {
+    e.preventDefault(); resetChatZoom();
+  }
+});
+
+
 function openHotkeys() { if (hotkeysModal) hotkeysModal.hidden = false; }
 function closeHotkeys() { if (hotkeysModal) hotkeysModal.hidden = true; }
 if (hotkeysBtn) hotkeysBtn.addEventListener('click', openHotkeys);
@@ -872,7 +937,14 @@ function pickRecorderMime() {
 // ─────────────────────────────────────────────────────────────────────────────
 let recorderOpts = null;
 
-function onDataAvailable(e) { enqueueChunk(e.data); }
+function onDataAvailable(e) {
+  // `e.target` is the recorder that just flushed. Read the peak RMS we
+  // snapshotted onto it before stop() — falls back to current if absent
+  // (e.g. on natural stopWhisper teardown of the active recorder).
+  const rec = e && e.target;
+  const peak = (rec && typeof rec._peakRMS === 'number') ? rec._peakRMS : currentChunkPeakRMS;
+  enqueueChunk(e.data, peak);
+}
 
 async function startWhisper() {
   let stream;
@@ -892,6 +964,30 @@ async function startWhisper() {
     return;
   }
   mediaStream = stream;
+
+  // ── Silence detector — sample RMS at 100ms cadence ───────────────────
+  try {
+    const Ctx = window.AudioContext || window.webkitAudioContext;
+    if (Ctx) {
+      audioCtx = new Ctx();
+      const src = audioCtx.createMediaStreamSource(mediaStream);
+      analyserNode = audioCtx.createAnalyser();
+      analyserNode.fftSize = 1024;
+      src.connect(analyserNode);
+      // NOTE: do NOT connect analyser to destination — would echo mic to speakers.
+      const buf = new Float32Array(analyserNode.fftSize);
+      currentChunkPeakRMS = 0;
+      rmsSampleTimer = setInterval(() => {
+        try {
+          analyserNode.getFloatTimeDomainData(buf);
+          let sum = 0;
+          for (let i = 0; i < buf.length; i++) sum += buf[i] * buf[i];
+          const rms = Math.sqrt(sum / buf.length);
+          if (rms > currentChunkPeakRMS) currentChunkPeakRMS = rms;
+        } catch (_) { /* ignore */ }
+      }, 100);
+    }
+  } catch (_) { audioCtx = null; analyserNode = null; }
 
   chunkSeq = 0;
   nextAppendSeq = 0;
@@ -916,6 +1012,12 @@ async function startWhisper() {
 
 function rotateRecorder() {
   if (!listening || errored) return;
+  // Snapshot peak RMS for the chunk that's about to flush, then reset for
+  // the new chunk window. The peak is read inside enqueueChunk via
+  // currentChunkPeakRMS — set on the recorder instance before stop() so the
+  // synchronous ondataavailable can read it.
+  try { mediaRecorder._peakRMS = currentChunkPeakRMS; } catch (_) {}
+  currentChunkPeakRMS = 0;
   try { mediaRecorder.stop(); } catch (e) { /* ignore */ }
   mediaRecorder = new MediaRecorder(mediaStream, recorderOpts);
   mediaRecorder.ondataavailable = onDataAvailable;
@@ -928,7 +1030,19 @@ function stopWhisper() {
     clearInterval(chunkRotateTimer);
     chunkRotateTimer = null;
   }
+  if (rmsSampleTimer) {
+    clearInterval(rmsSampleTimer);
+    rmsSampleTimer = null;
+  }
+  // Snapshot peak for the trailing chunk so the silence gate can evaluate it.
+  try { if (mediaRecorder) mediaRecorder._peakRMS = currentChunkPeakRMS; } catch (_) {}
+  currentChunkPeakRMS = 0;
   try { mediaRecorder && mediaRecorder.stop(); } catch (e) { /* ignore */ }
+  if (audioCtx) {
+    try { audioCtx.close(); } catch (_) { /* ignore */ }
+    audioCtx = null;
+    analyserNode = null;
+  }
   if (mediaStream) {
     try { mediaStream.getTracks().forEach(t => t.stop()); } catch (e) { /* ignore */ }
   }
@@ -955,8 +1069,17 @@ function filterHallucinations(text) {
   return text;
 }
 
-function enqueueChunk(blob) {
+function enqueueChunk(blob, peakRMS) {
   if (!blob || blob.size === 0) return;
+  // Drop near-silent chunks before they reach Whisper — prevents
+  // hallucinated transcripts ("Thank you", "E aí", "Tchau", etc.) on
+  // pauses or background-noise-only audio.
+  const peak = (typeof peakRMS === 'number') ? peakRMS : currentChunkPeakRMS;
+  const threshold = readSilenceThreshold();
+  if (peak < threshold) {
+    // Skip silently — do NOT increment chunkSeq, do NOT post.
+    return;
+  }
   const seq = chunkSeq++;
   inFlight += 1;
   updateStatusLine();
