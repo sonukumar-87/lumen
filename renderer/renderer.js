@@ -877,7 +877,16 @@ function onDataAvailable(e) { enqueueChunk(e.data); }
 async function startWhisper() {
   let stream;
   try {
-    stream = await navigator.mediaDevices.getUserMedia({ audio: true });
+    // Use the system default input (changes correctly when you plug in
+    // headphones). Constraints disable echo/noise/AGC tweaks so Whisper
+    // gets the cleanest possible audio.
+    stream = await navigator.mediaDevices.getUserMedia({
+      audio: {
+        echoCancellation: true,
+        noiseSuppression: true,
+        autoGainControl: true,
+      },
+    });
   } catch (e) {
     reportError('mic-denied', e);
     return;
@@ -931,6 +940,23 @@ function stopWhisper() {
 // ─────────────────────────────────────────────────────────────────────────────
 // WHISPER CHUNK PIPELINE
 // ─────────────────────────────────────────────────────────────────────────────
+// Whisper hallucinates short phrases like "Thank you" / "Thanks for watching"
+// when fed near-silent audio. Filter them out so they don't pollute transcripts.
+const HALLUCINATIONS = new Set([
+  'thank you', 'thanks', 'thanks for watching', 'thanks for watching!',
+  'thank you.', 'thank you!', 'you', '.', '...', 'bye', 'okay', 'ok',
+  'mm-hmm.', 'mm-hmm', 'uh', 'um', 'subtitles by the amara.org community',
+  'please subscribe', 'like and subscribe', 'thanks for watching!',
+]);
+function filterHallucinations(text) {
+  if (!text) return '';
+  const norm = text.trim().toLowerCase();
+  if (HALLUCINATIONS.has(norm)) return '';
+  // Also filter very short outputs (1-3 chars) which are usually noise.
+  if (text.trim().length <= 3) return '';
+  return text;
+}
+
 function enqueueChunk(blob) {
   if (!blob || blob.size === 0) return;
   const seq = chunkSeq++;
@@ -988,7 +1014,8 @@ async function postChunk(seq, blob) {
   }
 
   if (!errored) {
-    pendingTranscripts.set(seq, { ok: true, text: String(parsed.text).trim() });
+    const cleaned = filterHallucinations(String(parsed.text).trim());
+    pendingTranscripts.set(seq, { ok: true, text: cleaned });
     drainAppendQueue();
   }
   inFlight = Math.max(0, inFlight - 1);
