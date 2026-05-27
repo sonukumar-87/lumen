@@ -17,7 +17,7 @@ function isValidLicense(key) {
   return !!key && LICENSE_KEYS.has(String(key).trim().toUpperCase());
 }
 
-(function gateBoot() {
+function initLicenseGate() {
   try {
     const stored = localStorage.getItem(LICENSE_KEY_STORAGE);
     if (isValidLicense(stored)) return;
@@ -40,19 +40,24 @@ function isValidLicense(key) {
         inp.select();
       }
     }
-    btn.addEventListener('click', tryKey);
-    inp.addEventListener('keydown', (e) => { if (e.key === 'Enter') { e.preventDefault(); tryKey(); } });
-    if (liBtn) liBtn.addEventListener('click', () => {
+    btn.onclick = tryKey;
+    inp.onkeydown = (e) => { if (e.key === 'Enter') { e.preventDefault(); tryKey(); } };
+    if (liBtn) liBtn.onclick = () => {
       const a = document.createElement('a');
       a.href = 'https://www.linkedin.com/in/sonu-kumar-99a860354';
       a.target = '_blank'; a.rel = 'noopener';
       document.body.appendChild(a); a.click(); a.remove();
-    });
+    };
   } catch (e) {
-    // If anything throws, fail OPEN (don't lock the user out).
     console.error('license gate error:', e);
   }
-})();
+}
+
+if (document.readyState === 'loading') {
+  document.addEventListener('DOMContentLoaded', initLicenseGate);
+} else {
+  initLicenseGate();
+}
 
 const L = window.lumen || {
   platform: 'browser',
