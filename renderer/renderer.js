@@ -3,57 +3,8 @@
 // `window.lumen` (from preload) is available in Electron; in a plain browser
 // we fall back to no-ops so the same file still works.
 
-// ── License gate (simple invite-only check) ────────────────────────────────
-const LICENSE_KEYS = new Set([
-  'LUM-A3EE-5928-BF05',
-  'LUM-5DC0-1F5B-57D8',
-  'LUM-5144-6BA1-041B',
-  'LUM-FD66-0E5B-8913',
-  'LUM-BA79-2AC8-C6B4',
-]);
-const LICENSE_KEY_STORAGE = 'lumen.license';
-
-function isValidLicense(key) {
-  return !!key && LICENSE_KEYS.has(String(key).trim().toUpperCase());
-}
-
-function initLicenseGate() {
-  try {
-    const stored = localStorage.getItem(LICENSE_KEY_STORAGE);
-    if (isValidLicense(stored)) return;
-    const gate = document.getElementById('license-gate');
-    const inp  = document.getElementById('license-input');
-    const err  = document.getElementById('license-error');
-    if (!gate || !inp) return;
-    gate.hidden = false;
-    setTimeout(() => inp.focus(), 50);
-
-    window.__lumenTryKey = function () {
-      const k = (inp.value || '').trim().toUpperCase();
-      if (isValidLicense(k)) {
-        localStorage.setItem(LICENSE_KEY_STORAGE, k);
-        gate.hidden = true;
-      } else {
-        if (err) err.textContent = 'Invalid key. Please try again.';
-        inp.select();
-      }
-    };
-    window.__lumenOpenLinkedIn = function () {
-      const a = document.createElement('a');
-      a.href = 'https://www.linkedin.com/in/sonu-kumar-99a860354';
-      a.target = '_blank'; a.rel = 'noopener';
-      document.body.appendChild(a); a.click(); a.remove();
-    };
-  } catch (e) {
-    console.error('license gate error:', e);
-  }
-}
-
-if (document.readyState === 'loading') {
-  document.addEventListener('DOMContentLoaded', initLicenseGate);
-} else {
-  initLicenseGate();
-}
+// ── License gate disabled (was blocking activation in packaged build) ──────
+// Distribution control is now via "only ship the .dmg to invited users".
 
 const L = window.lumen || {
   platform: 'browser',
