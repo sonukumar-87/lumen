@@ -22,6 +22,7 @@ contextBridge.exposeInMainWorld('lumen', {
   setOpacity: (level, opts) => ipcRenderer.send('lumen:set-opacity', { level, instant: !!(opts && opts.instant) }),
 
   captureScreen: () => ipcRenderer.invoke('lumen:capture-screen'),
+  checkScreenPerm: () => ipcRenderer.invoke('lumen:check-screen-perm'),
 
   // Proxy LLM API fetch calls through the main process to bypass CORS
   apiFetch: (url, method, headers, body) =>

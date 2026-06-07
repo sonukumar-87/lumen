@@ -176,9 +176,17 @@ app.whenReady().then(() => {
     return net.fetch(pathToFileURL(abs).toString());
   });
 
-  // Microphone and screen permissions are requested on-demand when the user
-  // clicks Listen or Screenshot — NOT at startup. This prevents the permission
-  // popup from appearing every time the app launches after re-signing.
+  // Check screen recording permission on startup and notify user if missing.
+  // On macOS 10.15+, getMediaAccessStatus returns 'granted'/'denied'/'restricted'/'not-determined'.
+  if (process.platform === 'darwin' && systemPreferences.getMediaAccessStatus) {
+    const screenStatus = systemPreferences.getMediaAccessStatus('screen');
+    console.log('[lumen] Screen recording permission:', screenStatus);
+    if (screenStatus !== 'granted') {
+      // We don't block startup — just log. The capture handler will open Settings if needed.
+      console.log('[lumen] Screen recording not granted. User will be prompted on first capture.');
+    }
+  }
+
   createWindow();
   registerHotkeys();
 });
@@ -228,6 +236,14 @@ ipcMain.on('lumen:open-perm-mic', () => {
   if (process.platform === 'darwin') {
     shell.openExternal('x-apple.systempreferences:com.apple.preference.security?Privacy_Microphone');
   }
+});
+
+// Permission status check — renderer can query this to show helpful UI
+ipcMain.handle('lumen:check-screen-perm', () => {
+  if (process.platform === 'darwin' && systemPreferences.getMediaAccessStatus) {
+    return systemPreferences.getMediaAccessStatus('screen');
+  }
+  return 'granted'; // non-macOS or old API
 });
 
 // LLM API proxy — routes fetch requests through the main process to bypass
