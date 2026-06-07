@@ -23,6 +23,7 @@
     "productName": "Lumen",
     "asar": true,
     "npmRebuild": false,
+    "afterPack": "./scripts/afterPack.js",
     "files": [
       "main.js",
       "preload.js",
