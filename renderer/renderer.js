@@ -1594,7 +1594,6 @@ pingBtn.addEventListener('click', check);
 
 // apiFetch — tries direct fetch first; if it fails with a network/CORS error,
 // falls back to the main-process IPC proxy (L.apiFetch) which has no CORS restrictions.
-// Returns a standard Response-like object with { ok, status, body (ReadableStream or text) }.
 async function apiFetch(url, options) {
   // Try direct fetch first (works for most providers from lumen:// origin)
   try {
@@ -1603,8 +1602,10 @@ async function apiFetch(url, options) {
   } catch (e) {
     // Network/CORS error — fall back to IPC proxy
     if (!L.apiFetch) throw e;
-    const bodyStr = options.body ? (typeof options.body === 'string' ? options.body : options.body) : undefined;
-    const result = await L.apiFetch(url, options.method || 'POST', options.headers || {}, bodyStr);
+    const method = options.method || 'GET';
+    const headers = options.headers || {};
+    const body = options.body !== undefined ? options.body : null;
+    const result = await L.apiFetch(url, method, headers, body);
     if (result.error) throw new Error(result.error);
     // Wrap the text result in a Response-like object that streamSSE can consume
     const encoder = new TextEncoder();

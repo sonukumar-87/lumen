@@ -229,11 +229,12 @@ ipcMain.on('lumen:open-perm-mic', () => {
 // CORS restrictions that block requests from the lumen:// renderer origin.
 ipcMain.handle('lumen:api-fetch', async (_evt, { url, method, headers, body }) => {
   try {
-    const res = await net.fetch(url, {
-      method: method || 'POST',
+    const opts = {
+      method: method || 'GET',
       headers: headers || {},
-      body: body || undefined,
-    });
+    };
+    if (body !== undefined && body !== null) opts.body = body;
+    const res = await net.fetch(url, opts);
     const text = await res.text();
     return { ok: res.ok, status: res.status, text };
   } catch (e) {
