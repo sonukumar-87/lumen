@@ -1596,9 +1596,9 @@ function systemPrompt(hasImage) {
   const base = hasImage
     ? 'You are Lumen, a concise privacy-first desktop overlay. A live screenshot of the user\'s screen is attached. Look at it carefully and ground your answer in what you actually see.'
     : 'You are Lumen, a concise privacy-first desktop overlay.';
-  // Negative prompt — what to AVOID. User-customizable via Settings.
   const negative = (localStorage.getItem('lumen.negativePrompt') || DEFAULT_NEGATIVE_PROMPT).trim();
-  return base + ' Keep answers tight and grounded. ' + negative;
+  const docsCtx = buildDocsContext();
+  return base + ' Keep answers tight and grounded. ' + negative + docsCtx;
 }
 
 const DEFAULT_NEGATIVE_PROMPT = [
@@ -2063,3 +2063,153 @@ if (aboutCoffee) {
 if (aboutHotkeys) {
   aboutHotkeys.addEventListener('click', openHotkeys);
 }
+
+// ─────────────────────────────────────────────────────────────────────────────
+// PERSONAL DOCUMENTS — stored in localStorage, auto-injected into system prompt
+// ─────────────────────────────────────────────────────────────────────────────
+const LS_DOCS = 'lumen.personalDocs'; // [{ name, text, size, addedAt }]
+const MAX_DOC_CHARS = 40000;          // ~10k tokens — keep context reasonable
+const MAX_DOCS = 10;
+
+const docUploadInput  = $('doc-upload-input');
+const docList         = $('doc-list');
+const docClearAll     = $('doc-clear-all');
+const docStatusEl     = $('doc-status');
+
+function loadDocs() {
+  try {
+    const raw = localStorage.getItem(LS_DOCS);
+    if (!raw) return [];
+    const parsed = JSON.parse(raw);
+    return Array.isArray(parsed) ? parsed : [];
+  } catch { return []; }
+}
+
+function saveDocs(docs) {
+  try { localStorage.setItem(LS_DOCS, JSON.stringify(docs)); } catch {}
+}
+
+function renderDocList() {
+  if (!docList) return;
+  const docs = loadDocs();
+  docList.innerHTML = '';
+  if (docs.length === 0) {
+    docList.innerHTML = '<div style="color:var(--muted-2);font-size:11.5px;font-style:italic">No documents uploaded yet.</div>';
+    return;
+  }
+  docs.forEach((doc, i) => {
+    const row = document.createElement('div');
+    row.style.cssText = 'display:flex;align-items:center;gap:8px;padding:7px 10px;border:1px solid var(--border);border-radius:8px;background:rgba(255,255,255,0.02)';
+    const icon = document.createElement('span');
+    icon.textContent = '📄';
+    icon.style.flexShrink = '0';
+    const info = document.createElement('div');
+    info.style.cssText = 'flex:1;min-width:0';
+    const name = document.createElement('div');
+    name.style.cssText = 'font-size:12px;color:var(--fg);overflow:hidden;text-overflow:ellipsis;white-space:nowrap';
+    name.textContent = doc.name;
+    const meta = document.createElement('div');
+    meta.style.cssText = 'font-size:10.5px;color:var(--muted)';
+    meta.textContent = Math.round(doc.text.length / 1000) + 'k chars · added ' + new Date(doc.addedAt).toLocaleDateString();
+    info.appendChild(name);
+    info.appendChild(meta);
+    const delBtn = document.createElement('button');
+    delBtn.className = 'btn ghost';
+    delBtn.style.cssText = 'padding:3px 8px;font-size:11px;color:var(--danger);flex-shrink:0';
+    delBtn.textContent = '✕';
+    delBtn.title = 'Remove this document';
+    delBtn.addEventListener('click', () => {
+      const docs = loadDocs();
+      docs.splice(i, 1);
+      saveDocs(docs);
+      renderDocList();
+      updateDocStatus();
+    });
+    row.appendChild(icon);
+    row.appendChild(info);
+    row.appendChild(delBtn);
+    docList.appendChild(row);
+  });
+}
+
+function updateDocStatus() {
+  if (!docStatusEl) return;
+  const docs = loadDocs();
+  if (docs.length === 0) { docStatusEl.textContent = ''; return; }
+  const totalChars = docs.reduce((s, d) => s + d.text.length, 0);
+  docStatusEl.textContent = docs.length + ' document' + (docs.length > 1 ? 's' : '') +
+    ' stored · ~' + Math.round(totalChars / 1000) + 'k chars · injected into every AI request';
+  docStatusEl.style.color = 'var(--ok)';
+}
+
+// Extract text from File — handles txt/md/csv/json directly;
+// PDF/DOC are read as text (works for text-based PDFs, degrades gracefully for binary).
+async function extractText(file) {
+  return new Promise((resolve) => {
+    const reader = new FileReader();
+    reader.onload = (e) => {
+      let text = e.target.result || '';
+      // Strip null bytes and non-printable chars from binary formats
+      text = text.replace(/\0/g, ' ').replace(/[^\x09\x0A\x0D\x20-\x7E\u00A0-\uFFFF]/g, ' ');
+      text = text.replace(/\s{4,}/g, '\n').trim();
+      resolve(text.slice(0, MAX_DOC_CHARS));
+    };
+    reader.onerror = () => resolve('');
+    reader.readAsText(file);
+  });
+}
+
+if (docUploadInput) {
+  docUploadInput.addEventListener('change', async () => {
+    const files = Array.from(docUploadInput.files || []);
+    if (!files.length) return;
+    const docs = loadDocs();
+    let added = 0;
+    if (docStatusEl) { docStatusEl.textContent = 'Reading files…'; docStatusEl.style.color = 'var(--muted)'; }
+    for (const file of files) {
+      if (docs.length >= MAX_DOCS) {
+        if (docStatusEl) { docStatusEl.textContent = 'Max ' + MAX_DOCS + ' documents reached. Remove one first.'; docStatusEl.style.color = 'var(--danger)'; }
+        break;
+      }
+      const text = await extractText(file);
+      if (!text || text.length < 10) continue;
+      // Replace existing doc with same name
+      const existIdx = docs.findIndex(d => d.name === file.name);
+      const entry = { name: file.name, text, addedAt: Date.now() };
+      if (existIdx >= 0) docs[existIdx] = entry;
+      else docs.push(entry);
+      added++;
+    }
+    saveDocs(docs);
+    renderDocList();
+    updateDocStatus();
+    if (added > 0 && docStatusEl) {
+      docStatusEl.textContent = '✓ ' + added + ' document' + (added > 1 ? 's' : '') + ' uploaded. AI will use it automatically.';
+      docStatusEl.style.color = 'var(--ok)';
+    }
+    docUploadInput.value = '';
+  });
+}
+
+if (docClearAll) {
+  docClearAll.addEventListener('click', () => {
+    if (!confirm('Remove all stored documents?')) return;
+    localStorage.removeItem(LS_DOCS);
+    renderDocList();
+    updateDocStatus();
+  });
+}
+
+// Build the docs context string to inject into system prompt
+function buildDocsContext() {
+  const docs = loadDocs();
+  if (docs.length === 0) return '';
+  const parts = docs.map(d =>
+    '=== Document: ' + d.name + ' ===\n' + d.text + '\n=== End of ' + d.name + ' ==='
+  );
+  return '\n\n--- PERSONAL DOCUMENTS (use these as context when relevant) ---\n' + parts.join('\n\n') + '\n--- END OF PERSONAL DOCUMENTS ---';
+}
+
+// Initialise on load
+renderDocList();
+updateDocStatus();
