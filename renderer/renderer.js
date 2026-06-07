@@ -2366,27 +2366,26 @@ function applyMarkdown(el) {
 // FEATURE: COPY BUTTON, NEW CHAT, EXPORT, NOTES, PERSONA, THEME, TOKEN COUNTER
 // ─────────────────────────────────────────────────────────────────────────────
 
-// 2. Copy button — wire up the ⎘ in addMsg
-const _origAddMsg = addMsg;
-function addMsg(role, text) {
-  const d = _origAddMsg(role, text);
-  if (role === 'assistant') {
-    // Wire copy button
-    const copySpan = d.parentElement && d.parentElement.querySelector('.msg-actions span');
-    if (copySpan) {
-      copySpan.classList.add('msg-copy-btn');
-      copySpan.addEventListener('click', () => {
-        const content = d._rawText || d.innerText || d.textContent;
+// 2. Copy button — wired directly into addMsg above (see meta.innerHTML ⎘ span)
+// We use event delegation on the chat container instead of redefining addMsg
+chat.addEventListener('click', (e) => {
+  const copySpan = e.target.closest('.msg-copy-btn');
+  if (!copySpan) {
+    // Check if it's the ⎘ span
+    if (e.target.title === 'Copy' && e.target.closest('.msg-actions')) {
+      const msgEl = e.target.closest('.msg-row')?.querySelector('.msg.assistant');
+      if (msgEl) {
+        const content = msgEl._rawText || msgEl.innerText || msgEl.textContent;
         navigator.clipboard.writeText(content).then(() => {
-          const orig = copySpan.textContent;
-          copySpan.textContent = '✓';
-          setTimeout(() => { copySpan.textContent = orig; }, 1500);
+          const orig = e.target.textContent;
+          e.target.textContent = '✓';
+          setTimeout(() => { e.target.textContent = orig; }, 1500);
         }).catch(() => {});
-      });
+      }
     }
+    return;
   }
-  return d;
-}
+});
 
 // 3. New Chat — already wired above at line 2154
 
