@@ -647,7 +647,12 @@
           <option value="echo">Echo (no AI)</option>
           <option value="groq" selected>Groq (Llama)</option>
           <option value="gemini">Google Gemini</option>
-          <option value="ollama">Ollama (Llama 3)</option>
+          <option value="openai">OpenAI (GPT-4)</option>
+          <option value="claude">Claude (Anthropic)</option>
+          <option value="deepseek">DeepSeek</option>
+          <option value="grok">Grok (xAI)</option>
+          <option value="mistral">Mistral AI</option>
+          <option value="ollama">Ollama (Local)</option>
         </select>
         <div class="ai-status">
           <span class="dot" id="ai-dot"></span>
@@ -813,7 +818,11 @@
               </div>
               <div class="col">
                 <span class="lbl">Model <span id="model-hint" style="opacity:0.7"></span></span>
-                <input id="model" value="llama-3.3-70b-versatile"/>
+                <div style="display:flex;gap:6px;align-items:center">
+                  <select id="model-picker" style="flex:1;min-width:0"></select>
+                  <input id="model" value="llama-3.3-70b-versatile" placeholder="or type custom ID…" style="flex:1;min-width:0;display:none"/>
+                </div>
+                <span id="model-custom-toggle" style="font-size:11px;color:var(--accent);cursor:pointer;margin-top:3px;display:inline-block">✏️ Type custom model ID</span>
               </div>
             </div>
           </div>

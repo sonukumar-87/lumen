@@ -29,6 +29,7 @@ const chat = $('chat'), input = $('input'), sendBtn = $('send'), clearBtn = $('c
 const statusEl = $('status'), eyeEl = $('eye'), earEl = $('ear');
 // Backend settings (now inside the Settings pane, sidebar drives the select)
 const backendSel = $('backend'), modelInput = $('model'), modelHint = $('model-hint');
+const modelPicker = $('model-picker'), modelCustomToggle = $('model-custom-toggle');
 const apikeyInput = $('apikey'), savekeyBtn = $('savekey'), clearkeyBtn = $('clearkey');
 const ollamaUrlInput = $('ollamaurl'), pingBtn = $('ping');
 const keyRow = $('key-row'), keyLabel = $('key-label'), ollamaRow = $('ollama-row');
@@ -155,12 +156,113 @@ function readSilenceThreshold() {
 }
 
 // ── Model defaults & vision swaps ───────────────────────────────────────────
-const TEXT_DEFAULTS   = { groq: 'llama-3.3-70b-versatile', gemini: 'gemini-2.0-flash-lite', ollama: 'llama3.2' };
-const VISION_DEFAULTS = { groq: 'meta-llama/llama-4-scout-17b-16e-instruct', gemini: 'gemini-2.0-flash', ollama: 'llava' };
+const TEXT_DEFAULTS = {
+  groq:      'llama-3.3-70b-versatile',
+  gemini:    'gemini-2.0-flash-lite',
+  ollama:    'llama3.2',
+  claude:    'claude-opus-4-8',
+  deepseek:  'deepseek-chat',
+  openai:    'gpt-4.1',
+  grok:      'grok-4',
+  mistral:   'mistral-large-latest',
+};
+const VISION_DEFAULTS = {
+  groq:      'meta-llama/llama-4-scout-17b-16e-instruct',
+  gemini:    'gemini-2.0-flash',
+  ollama:    'llava',
+  claude:    'claude-opus-4-8',
+  deepseek:  'deepseek-chat',   // DeepSeek API does not support image input
+  openai:    'gpt-4o',
+  grok:      'grok-4',
+  mistral:   'pixtral-large-latest',
+};
 const VISION_HINTS = {
-  groq:   'vision: llama-4-scout / llama-4-maverick',
-  gemini: 'vision: gemini-2.0-flash, gemini-2.5-pro',
-  ollama: 'vision: llava, llama3.2-vision, bakllava',
+  groq:     'vision: llama-4-scout / llama-4-maverick',
+  gemini:   'vision: gemini-2.0-flash, gemini-2.5-pro',
+  ollama:   'vision: llava, llama3.2-vision, bakllava',
+  claude:   'vision: claude-opus-4-8, claude-sonnet-4-6',
+  deepseek: 'text only via API — deepseek-chat (V3), deepseek-reasoner (R1)',
+  openai:   'vision: gpt-4o, gpt-4.1 (use gpt-4o for images)',
+  grok:     'vision: grok-4 supports images',
+  mistral:  'vision: pixtral-large-latest, pixtral-12b-2409',
+};
+
+// ── Known model catalogues (shown in the model picker dropdown) ─────────────
+// Each entry: { id, label }  — id is sent to the API, label is display text.
+const MODEL_CATALOGUE = {
+  groq: [
+    { id: 'llama-3.3-70b-versatile',                      label: 'Llama 3.3 70B Versatile (default)' },
+    { id: 'llama-3.1-8b-instant',                         label: 'Llama 3.1 8B Instant (fast)' },
+    { id: 'llama-3.3-70b-specdec',                        label: 'Llama 3.3 70B SpecDec' },
+    { id: 'meta-llama/llama-4-scout-17b-16e-instruct',    label: 'Llama 4 Scout 17B (vision)' },
+    { id: 'meta-llama/llama-4-maverick-17b-128e-instruct',label: 'Llama 4 Maverick 17B (vision)' },
+    { id: 'mixtral-8x7b-32768',                           label: 'Mixtral 8x7B 32k' },
+    { id: 'gemma2-9b-it',                                 label: 'Gemma 2 9B' },
+  ],
+  gemini: [
+    { id: 'gemini-2.0-flash-lite',   label: 'Gemini 2.0 Flash Lite (default, fast)' },
+    { id: 'gemini-2.0-flash',        label: 'Gemini 2.0 Flash (vision)' },
+    { id: 'gemini-2.5-flash-preview-05-20', label: 'Gemini 2.5 Flash Preview' },
+    { id: 'gemini-2.5-pro-preview-06-05',   label: 'Gemini 2.5 Pro Preview' },
+    { id: 'gemini-1.5-flash',        label: 'Gemini 1.5 Flash' },
+    { id: 'gemini-1.5-pro',          label: 'Gemini 1.5 Pro' },
+  ],
+  openai: [
+    { id: 'gpt-4.1',        label: 'GPT-4.1 (default, latest)' },
+    { id: 'gpt-4.1-mini',   label: 'GPT-4.1 Mini (fast)' },
+    { id: 'gpt-4.1-nano',   label: 'GPT-4.1 Nano (cheapest)' },
+    { id: 'gpt-4o',         label: 'GPT-4o (vision)' },
+    { id: 'gpt-4o-mini',    label: 'GPT-4o Mini' },
+    { id: 'o1',             label: 'o1 (reasoning)' },
+    { id: 'o1-mini',        label: 'o1 Mini (reasoning, fast)' },
+    { id: 'o3',             label: 'o3 (advanced reasoning)' },
+    { id: 'o3-mini',        label: 'o3 Mini' },
+    { id: 'o4-mini',        label: 'o4 Mini' },
+  ],
+  claude: [
+    { id: 'claude-opus-4-8',          label: 'Claude Opus 4.8 (latest, most capable)' },
+    { id: 'claude-opus-4-7',          label: 'Claude Opus 4.7' },
+    { id: 'claude-opus-4-5-20251101', label: 'Claude Opus 4.5' },
+    { id: 'claude-sonnet-4-6',        label: 'Claude Sonnet 4.6 (fast + smart)' },
+    { id: 'claude-sonnet-4-5-20251120', label: 'Claude Sonnet 4.5' },
+    { id: 'claude-haiku-4-5',         label: 'Claude Haiku 4.5 (fastest)' },
+    { id: 'claude-3-5-sonnet-20241022', label: 'Claude 3.5 Sonnet (Oct 2024)' },
+    { id: 'claude-3-5-haiku-20241022',  label: 'Claude 3.5 Haiku' },
+    { id: 'claude-3-opus-20240229',     label: 'Claude 3 Opus' },
+  ],
+  deepseek: [
+    { id: 'deepseek-chat',      label: 'DeepSeek V3 / deepseek-chat (default)' },
+    { id: 'deepseek-reasoner',  label: 'DeepSeek R1 / deepseek-reasoner (reasoning)' },
+  ],
+  grok: [
+    { id: 'grok-4',       label: 'Grok 4 (default, latest)' },
+    { id: 'grok-3',       label: 'Grok 3' },
+    { id: 'grok-3-mini',  label: 'Grok 3 Mini (fast)' },
+    { id: 'grok-2-vision-1212', label: 'Grok 2 Vision (vision)' },
+    { id: 'grok-2-1212',  label: 'Grok 2' },
+  ],
+  mistral: [
+    { id: 'mistral-large-latest',    label: 'Mistral Large (default)' },
+    { id: 'mistral-medium-latest',   label: 'Mistral Medium' },
+    { id: 'mistral-small-latest',    label: 'Mistral Small (fast)' },
+    { id: 'open-mistral-nemo',       label: 'Mistral Nemo (open)' },
+    { id: 'pixtral-large-latest',    label: 'Pixtral Large (vision)' },
+    { id: 'pixtral-12b-2409',        label: 'Pixtral 12B (vision)' },
+    { id: 'codestral-latest',        label: 'Codestral (coding)' },
+  ],
+  ollama: [
+    { id: 'llama3.2',           label: 'Llama 3.2 (default)' },
+    { id: 'llama3.1',           label: 'Llama 3.1' },
+    { id: 'llama3.1:70b',       label: 'Llama 3.1 70B' },
+    { id: 'llava',              label: 'LLaVA (vision)' },
+    { id: 'llama3.2-vision',    label: 'Llama 3.2 Vision' },
+    { id: 'mistral',            label: 'Mistral 7B' },
+    { id: 'deepseek-r1',        label: 'DeepSeek R1 (reasoning)' },
+    { id: 'qwen2.5',            label: 'Qwen 2.5' },
+    { id: 'gemma3',             label: 'Gemma 3' },
+    { id: 'phi4',               label: 'Phi-4' },
+  ],
+  echo: [],
 };
 
 // ── Key storage ─────────────────────────────────────────────────────────────
@@ -168,19 +270,124 @@ const keyName = () => 'lumen.key.' + backendSel.value;
 const LS_BACKEND = 'lumen.backend';
 const LS_MODEL_PREFIX = 'lumen.model.';
 
+// Populate the model picker dropdown for the current backend, then sync
+// modelInput (which is what the rest of the code reads) from the selection.
+let _pickerIsCustom = false;
+
+function populateModelPicker(backend) {
+  if (!modelPicker) return;
+  const models = MODEL_CATALOGUE[backend] || [];
+  modelPicker.innerHTML = '';
+
+  if (models.length === 0) {
+    // echo or unknown — just use the text input directly
+    modelPicker.style.display = 'none';
+    modelInput.style.display = '';
+    if (modelCustomToggle) modelCustomToggle.style.display = 'none';
+    return;
+  }
+
+  models.forEach(m => {
+    const opt = document.createElement('option');
+    opt.value = m.id;
+    opt.textContent = m.label;
+    modelPicker.appendChild(opt);
+  });
+
+  // Add "Custom…" separator option at the bottom
+  const sep = document.createElement('option');
+  sep.value = '__custom__';
+  sep.textContent = '✏️ Custom model ID…';
+  modelPicker.appendChild(sep);
+
+  // Restore persisted model — if it's in the list use the picker,
+  // otherwise show the text input with the custom value.
+  const saved = localStorage.getItem(LS_MODEL_PREFIX + backend) || TEXT_DEFAULTS[backend] || '';
+  const inList = models.some(m => m.id === saved);
+
+  if (inList || !saved) {
+    modelPicker.value = saved || models[0].id;
+    modelInput.value = modelPicker.value;
+    modelInput.style.display = 'none';
+    modelPicker.style.display = '';
+    if (modelCustomToggle) modelCustomToggle.textContent = '✏️ Type custom model ID';
+    _pickerIsCustom = false;
+  } else {
+    // Custom value — show text input
+    modelPicker.value = '__custom__';
+    modelInput.value = saved;
+    modelInput.style.display = '';
+    modelPicker.style.display = 'none';
+    if (modelCustomToggle) modelCustomToggle.textContent = '← Back to model list';
+    _pickerIsCustom = true;
+  }
+}
+
+function syncModelFromPicker() {
+  if (!modelPicker) return;
+  if (modelPicker.value === '__custom__') {
+    // User chose "Custom…" from the dropdown
+    modelInput.value = '';
+    modelInput.style.display = '';
+    modelPicker.style.display = 'none';
+    if (modelCustomToggle) modelCustomToggle.textContent = '← Back to model list';
+    _pickerIsCustom = true;
+    modelInput.focus();
+  } else {
+    modelInput.value = modelPicker.value;
+    localStorage.setItem(LS_MODEL_PREFIX + backendSel.value, modelInput.value);
+  }
+}
+
+if (modelPicker) {
+  modelPicker.addEventListener('change', syncModelFromPicker);
+}
+
+if (modelCustomToggle) {
+  modelCustomToggle.addEventListener('click', () => {
+    if (_pickerIsCustom) {
+      // Switch back to picker
+      populateModelPicker(backendSel.value);
+    } else {
+      // Switch to custom text input
+      modelInput.value = modelInput.value || '';
+      modelInput.style.display = '';
+      modelPicker.style.display = 'none';
+      modelCustomToggle.textContent = '← Back to model list';
+      _pickerIsCustom = true;
+      modelInput.focus();
+    }
+  });
+}
+
 backendSel.value = localStorage.getItem(LS_BACKEND) || 'groq';
 modelInput.value = localStorage.getItem(LS_MODEL_PREFIX + backendSel.value) || TEXT_DEFAULTS[backendSel.value] || '';
 apikeyInput.value = localStorage.getItem(keyName()) || '';
 syncRows();
 updateLcPill();
+populateModelPicker(backendSel.value);
 
 function syncRows() {
   keyRow.hidden = (backendSel.value === 'echo' || backendSel.value === 'ollama');
   ollamaRow.hidden = backendSel.value !== 'ollama';
-  keyLabel.textContent = backendSel.value === 'groq'   ? 'Groq API key (starts with gsk_…)'
-                      :  backendSel.value === 'gemini' ? 'Gemini API key (starts with AIza…)'
-                      :  'API key';
-  apikeyInput.placeholder = backendSel.value === 'groq' ? 'gsk_…' : backendSel.value === 'gemini' ? 'AIza…' : '';
+  keyLabel.textContent =
+      backendSel.value === 'groq'     ? 'Groq API key (starts with gsk_…)'
+    : backendSel.value === 'gemini'   ? 'Gemini API key (starts with AIza…)'
+    : backendSel.value === 'claude'   ? 'Anthropic API key (starts with sk-ant-…)'
+    : backendSel.value === 'deepseek' ? 'DeepSeek API key (starts with sk-…)'
+    : backendSel.value === 'openai'   ? 'OpenAI API key (starts with sk-…)'
+    : backendSel.value === 'grok'     ? 'xAI API key (starts with xai-…)'
+    : backendSel.value === 'mistral'  ? 'Mistral API key'
+    : 'API key';
+  apikeyInput.placeholder =
+      backendSel.value === 'groq'     ? 'gsk_…'
+    : backendSel.value === 'gemini'   ? 'AIza…'
+    : backendSel.value === 'claude'   ? 'sk-ant-…'
+    : backendSel.value === 'deepseek' ? 'sk-…'
+    : backendSel.value === 'openai'   ? 'sk-…'
+    : backendSel.value === 'grok'     ? 'xai-…'
+    : backendSel.value === 'mistral'  ? 'your-mistral-key'
+    : '';
   modelHint.textContent = VISION_HINTS[backendSel.value] ? '— ' + VISION_HINTS[backendSel.value] : '';
   if (previewBackend) previewBackend.textContent = backendSel.value;
 }
@@ -199,11 +406,11 @@ function updateLcPill() {
 
 backendSel.addEventListener('change', () => {
   localStorage.setItem(LS_BACKEND, backendSel.value);
-  modelInput.value = localStorage.getItem(LS_MODEL_PREFIX + backendSel.value) || TEXT_DEFAULTS[backendSel.value] || '';
   apikeyInput.value = localStorage.getItem(keyName()) || '';
   prevTextModel = null;
   syncRows();
   updateLcPill();
+  populateModelPicker(backendSel.value);
   check();
 });
 modelInput.addEventListener('change', () => localStorage.setItem(LS_MODEL_PREFIX + backendSel.value, modelInput.value));
@@ -1308,8 +1515,72 @@ async function check() {
       setStatus(has ? 'ready (' + modelInput.value + ')' : 'connected, model not pulled', has);
     } catch { setStatus('ollama not reachable', false); }
   }
+  if (backendSel.value === 'claude') {
+    const k = currentKey(); if (!k) return setStatus('paste an Anthropic API key', false);
+    try {
+      const r = await fetch('https://api.anthropic.com/v1/models', {
+        headers: { 'x-api-key': k, 'anthropic-version': '2023-06-01' },
+      });
+      if (!r.ok) throw new Error('HTTP ' + r.status);
+      const d = await r.json();
+      const has = (d.data || []).some(m => m.id === modelInput.value);
+      setStatus(has ? 'ready (' + modelInput.value + ')' : 'key works, model id not found', has);
+    } catch (e) { setStatus('key check failed: ' + e.message, false); }
+    return;
+  }
+  if (backendSel.value === 'deepseek') {
+    const k = currentKey(); if (!k) return setStatus('paste a DeepSeek API key', false);
+    try {
+      const r = await fetch('https://api.deepseek.com/models', {
+        headers: { Authorization: 'Bearer ' + k },
+      });
+      if (!r.ok) throw new Error('HTTP ' + r.status);
+      const d = await r.json();
+      const has = (d.data || []).some(m => m.id === modelInput.value);
+      setStatus(has ? 'ready (' + modelInput.value + ')' : 'key works, model id not found', has);
+    } catch (e) { setStatus('key check failed: ' + e.message, false); }
+    return;
+  }
+  if (backendSel.value === 'openai') {
+    const k = currentKey(); if (!k) return setStatus('paste an OpenAI API key', false);
+    try {
+      const r = await fetch('https://api.openai.com/v1/models', {
+        headers: { Authorization: 'Bearer ' + k },
+      });
+      if (!r.ok) throw new Error('HTTP ' + r.status);
+      const d = await r.json();
+      const has = (d.data || []).some(m => m.id === modelInput.value);
+      setStatus(has ? 'ready (' + modelInput.value + ')' : 'key works, model id not found', has);
+    } catch (e) { setStatus('key check failed: ' + e.message, false); }
+    return;
+  }
+  if (backendSel.value === 'grok') {
+    const k = currentKey(); if (!k) return setStatus('paste an xAI API key', false);
+    try {
+      const r = await fetch('https://api.x.ai/v1/models', {
+        headers: { Authorization: 'Bearer ' + k },
+      });
+      if (!r.ok) throw new Error('HTTP ' + r.status);
+      const d = await r.json();
+      const has = (d.data || []).some(m => m.id === modelInput.value);
+      setStatus(has ? 'ready (' + modelInput.value + ')' : 'key works, model id not found', has);
+    } catch (e) { setStatus('key check failed: ' + e.message, false); }
+    return;
+  }
+  if (backendSel.value === 'mistral') {
+    const k = currentKey(); if (!k) return setStatus('paste a Mistral API key', false);
+    try {
+      const r = await fetch('https://api.mistral.ai/v1/models', {
+        headers: { Authorization: 'Bearer ' + k },
+      });
+      if (!r.ok) throw new Error('HTTP ' + r.status);
+      const d = await r.json();
+      const has = (d.data || []).some(m => m.id === modelInput.value);
+      setStatus(has ? 'ready (' + modelInput.value + ')' : 'key works, model id not found', has);
+    } catch (e) { setStatus('key check failed: ' + e.message, false); }
+    return;
+  }
 }
-pingBtn.addEventListener('click', check);
 
 // ─────────────────────────────────────────────────────────────────────────────
 // LLM BACKENDS (with optional image attachment)
@@ -1440,6 +1711,187 @@ async function streamOllama(target, image) {
   history.push({ role: 'assistant', content: full });
 }
 
+async function streamClaude(target, image) {
+  const k = currentKey();
+  if (!k) { target.textContent = 'No Anthropic API key.'; target.classList.add('err'); return; }
+  const priorTurns = history.slice(0, -1);
+  const lastUserText = history[history.length - 1].content;
+  const modelToUse = image ? (VISION_DEFAULTS.claude || modelInput.value) : modelInput.value;
+
+  // Build messages — Claude uses a flat messages array; system is a top-level field.
+  const messages = priorTurns.map(m => ({
+    role: m.role === 'assistant' ? 'assistant' : 'user',
+    content: m.content,
+  }));
+  const lastContent = image
+    ? [
+        { type: 'image', source: { type: 'base64', media_type: 'image/jpeg', data: image.split(',')[1] } },
+        { type: 'text', text: lastUserText },
+      ]
+    : lastUserText;
+  messages.push({ role: 'user', content: lastContent });
+
+  const body = {
+    model: modelToUse,
+    max_tokens: 2048,
+    stream: true,
+    system: systemPrompt(!!image),
+    messages,
+  };
+  let res;
+  try {
+    res = await fetch('https://api.anthropic.com/v1/messages', {
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/json',
+        'x-api-key': k,
+        'anthropic-version': '2023-06-01',
+      },
+      body: JSON.stringify(body),
+    });
+  } catch (e) { target.textContent = 'Network error: ' + e.message; target.classList.add('err'); return; }
+  if (!res.ok) { const t = await res.text(); target.textContent = 'Claude ' + res.status + ': ' + t.slice(0, 300); target.classList.add('err'); return; }
+
+  // Claude uses SSE with event types; we care about `content_block_delta` events.
+  const reader = res.body.getReader(), dec = new TextDecoder();
+  let buf = '', full = '';
+  const cur = document.createElement('span'); cur.className = 'cursor'; target.textContent = ''; target.appendChild(cur);
+  while (true) {
+    const { value, done } = await reader.read(); if (done) break;
+    buf += dec.decode(value, { stream: true });
+    let nl;
+    while ((nl = buf.indexOf('\n')) >= 0) {
+      const line = buf.slice(0, nl).trim(); buf = buf.slice(nl + 1);
+      if (!line.startsWith('data:')) continue;
+      const data = line.slice(5).trim();
+      if (data === '[DONE]') break;
+      try {
+        const obj = JSON.parse(data);
+        // Stream event types: content_block_delta carries the text
+        if (obj.type === 'content_block_delta' && obj.delta && obj.delta.type === 'text_delta') {
+          full += obj.delta.text;
+          cur.remove(); target.textContent = full; target.appendChild(cur);
+          chat.scrollTop = chat.scrollHeight;
+        }
+        if (obj.type === 'message_stop') break;
+      } catch {}
+    }
+  }
+  cur.remove();
+  history.push({ role: 'assistant', content: full });
+}
+
+async function streamDeepSeek(target, image) {
+  const k = currentKey();
+  if (!k) { target.textContent = 'No DeepSeek API key.'; target.classList.add('err'); return; }
+  // DeepSeek uses an OpenAI-compatible API — same shape as Groq.
+  const priorTurns = history.slice(0, -1);
+  const lastUserText = history[history.length - 1].content;
+  // DeepSeek does not support image inputs; strip image and warn.
+  if (image) {
+    const note = '[Note: DeepSeek does not support image input — answering from text only]\n\n';
+    target.textContent = note;
+  }
+  const body = {
+    model: modelInput.value,
+    stream: true,
+    temperature: 0.3,
+    messages: [
+      { role: 'system', content: systemPrompt(false) },
+      ...priorTurns,
+      { role: 'user', content: lastUserText },
+    ],
+  };
+  let res;
+  try {
+    res = await fetch('https://api.deepseek.com/chat/completions', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json', Authorization: 'Bearer ' + k },
+      body: JSON.stringify(body),
+    });
+  } catch (e) { target.textContent = 'Network error: ' + e.message; target.classList.add('err'); return; }
+  if (!res.ok) { const t = await res.text(); target.textContent = 'DeepSeek ' + res.status + ': ' + t.slice(0, 300); target.classList.add('err'); return; }
+  await streamSSE(res, target);
+}
+
+// OpenAI — full OpenAI-compatible streaming (GPT-4o, GPT-4.1, o1, etc.)
+async function streamOpenAI(target, image) {
+  const k = currentKey();
+  if (!k) { target.textContent = 'No OpenAI API key.'; target.classList.add('err'); return; }
+  const priorTurns = history.slice(0, -1);
+  const lastUserText = history[history.length - 1].content;
+  const modelToUse = image ? (VISION_DEFAULTS.openai || modelInput.value) : modelInput.value;
+  const userContent = image
+    ? [{ type: 'text', text: lastUserText }, { type: 'image_url', image_url: { url: image, detail: 'high' } }]
+    : lastUserText;
+  const body = {
+    model: modelToUse, stream: true, temperature: 0.3,
+    messages: [{ role: 'system', content: systemPrompt(!!image) }, ...priorTurns, { role: 'user', content: userContent }],
+  };
+  let res;
+  try {
+    res = await fetch('https://api.openai.com/v1/chat/completions', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json', Authorization: 'Bearer ' + k },
+      body: JSON.stringify(body),
+    });
+  } catch (e) { target.textContent = 'Network error: ' + e.message; target.classList.add('err'); return; }
+  if (!res.ok) { const t = await res.text(); target.textContent = 'OpenAI ' + res.status + ': ' + t.slice(0, 300); target.classList.add('err'); return; }
+  await streamSSE(res, target);
+}
+
+// xAI Grok — OpenAI-compatible endpoint
+async function streamGrok(target, image) {
+  const k = currentKey();
+  if (!k) { target.textContent = 'No xAI API key.'; target.classList.add('err'); return; }
+  const priorTurns = history.slice(0, -1);
+  const lastUserText = history[history.length - 1].content;
+  const modelToUse = image ? (VISION_DEFAULTS.grok || modelInput.value) : modelInput.value;
+  const userContent = image
+    ? [{ type: 'text', text: lastUserText }, { type: 'image_url', image_url: { url: image } }]
+    : lastUserText;
+  const body = {
+    model: modelToUse, stream: true, temperature: 0.3,
+    messages: [{ role: 'system', content: systemPrompt(!!image) }, ...priorTurns, { role: 'user', content: userContent }],
+  };
+  let res;
+  try {
+    res = await fetch('https://api.x.ai/v1/chat/completions', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json', Authorization: 'Bearer ' + k },
+      body: JSON.stringify(body),
+    });
+  } catch (e) { target.textContent = 'Network error: ' + e.message; target.classList.add('err'); return; }
+  if (!res.ok) { const t = await res.text(); target.textContent = 'Grok ' + res.status + ': ' + t.slice(0, 300); target.classList.add('err'); return; }
+  await streamSSE(res, target);
+}
+
+// Mistral — OpenAI-compatible endpoint (supports Pixtral vision models)
+async function streamMistral(target, image) {
+  const k = currentKey();
+  if (!k) { target.textContent = 'No Mistral API key.'; target.classList.add('err'); return; }
+  const priorTurns = history.slice(0, -1);
+  const lastUserText = history[history.length - 1].content;
+  const modelToUse = image ? (VISION_DEFAULTS.mistral || modelInput.value) : modelInput.value;
+  const userContent = image
+    ? [{ type: 'text', text: lastUserText }, { type: 'image_url', image_url: { url: image } }]
+    : lastUserText;
+  const body = {
+    model: modelToUse, stream: true, temperature: 0.3,
+    messages: [{ role: 'system', content: systemPrompt(!!image) }, ...priorTurns, { role: 'user', content: userContent }],
+  };
+  let res;
+  try {
+    res = await fetch('https://api.mistral.ai/v1/chat/completions', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json', Authorization: 'Bearer ' + k },
+      body: JSON.stringify(body),
+    });
+  } catch (e) { target.textContent = 'Network error: ' + e.message; target.classList.add('err'); return; }
+  if (!res.ok) { const t = await res.text(); target.textContent = 'Mistral ' + res.status + ': ' + t.slice(0, 300); target.classList.add('err'); return; }
+  await streamSSE(res, target);
+}
+
 async function streamSSE(res, target) {
   const reader = res.body.getReader(), dec = new TextDecoder();
   let buf = '', full = '';
@@ -1484,9 +1936,14 @@ async function ask() {
     history.push({ role: 'assistant', content: target.textContent });
     return;
   }
-  if (backendSel.value === 'groq')   return streamGroq(target, image);
-  if (backendSel.value === 'gemini') return streamGemini(target, image);
-  if (backendSel.value === 'ollama') return streamOllama(target, image);
+  if (backendSel.value === 'groq')      return streamGroq(target, image);
+  if (backendSel.value === 'gemini')    return streamGemini(target, image);
+  if (backendSel.value === 'claude')    return streamClaude(target, image);
+  if (backendSel.value === 'deepseek')  return streamDeepSeek(target, image);
+  if (backendSel.value === 'openai')    return streamOpenAI(target, image);
+  if (backendSel.value === 'grok')      return streamGrok(target, image);
+  if (backendSel.value === 'mistral')   return streamMistral(target, image);
+  if (backendSel.value === 'ollama')    return streamOllama(target, image);
 }
 
 sendBtn.addEventListener('click', ask);
