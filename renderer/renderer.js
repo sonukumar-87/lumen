@@ -1901,27 +1901,47 @@ async function streamMistral(target, image) {
 async function streamNvidia(target, image) {
   const k = currentKey();
   if (!k) { target.textContent = 'No NVIDIA NIM API key (nvapi-…).'; target.classList.add('err'); return; }
-  if (image) { target.textContent += '[Note: NVIDIA NIM vision support depends on the model — image input skipped for text-only models]\n\n'; }
+  if (image) { target.textContent += '[Note: image input skipped for text-only models]\n\n'; }
   const priorTurns = history.slice(0, -1);
   const lastUserText = history[history.length - 1].content;
   const body = {
     model: modelInput.value,
-    stream: true,
+    stream: false,  // Use non-streaming since IPC proxy returns full text
     temperature: 1,
     top_p: 0.95,
-    max_tokens: 16384,
+    max_tokens: 4096,
     messages: [{ role: 'system', content: systemPrompt(false) }, ...priorTurns, { role: 'user', content: lastUserText }],
   };
-  let res;
+
+  const cur = document.createElement('span'); cur.className = 'cursor';
+  target.textContent = ''; target.appendChild(cur);
+
   try {
-    res = await apiFetch('https://integrate.api.nvidia.com/v1/chat/completions', {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json', Authorization: 'Bearer ' + k },
-      body: JSON.stringify(body),
-    });
-  } catch (e) { target.textContent = 'Network error: ' + e.message; target.classList.add('err'); return; }
-  if (!res.ok) { const t = await res.text(); target.textContent = 'NVIDIA NIM ' + res.status + ': ' + t.slice(0, 300); target.classList.add('err'); return; }
-  await streamSSE(res, target);
+    // Always use IPC proxy for NVIDIA — avoids CORS issues with lumen:// origin
+    const result = await L.apiFetch(
+      'https://integrate.api.nvidia.com/v1/chat/completions',
+      'POST',
+      { 'Content-Type': 'application/json', 'Authorization': 'Bearer ' + k },
+      JSON.stringify(body)
+    );
+    cur.remove();
+    if (!result.ok) {
+      target.textContent = 'NVIDIA NIM ' + result.status + ': ' + result.text.slice(0, 300);
+      target.classList.add('err'); return;
+    }
+    const parsed = JSON.parse(result.text);
+    const content = parsed?.choices?.[0]?.message?.content || '';
+    // Also show reasoning if present
+    const reasoning = parsed?.choices?.[0]?.message?.reasoning_content || '';
+    const full = reasoning ? '<think>\n' + reasoning + '\n</think>\n\n' + content : content;
+    target.textContent = full;
+    history.push({ role: 'assistant', content: content });
+    saveHistory();
+  } catch (e) {
+    cur.remove();
+    target.textContent = 'NVIDIA NIM error: ' + e.message;
+    target.classList.add('err');
+  }
 }
 
 async function streamSSE(res, target) {
