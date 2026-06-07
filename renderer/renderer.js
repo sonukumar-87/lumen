@@ -1725,12 +1725,7 @@ function systemPrompt(hasImage) {
 // Check if the user's question likely needs document context.
 function needsDocsContext(question) {
   const q = question.toLowerCase();
-  const triggers = [
-    'resume', 'cv', 'cover letter', 'job', 'role', 'position', 'apply', 'application',
-    'skill', 'experience', 'project', 'work', 'career', 'linkedin', 'bio', 'portfolio',
-    'certificate', 'education', 'qualification', 'hire', 'interview', 'salary',
-    'my background', 'about me', 'who am i', 'my experience', 'my skill',
-  ];
+  const triggers = ['resume', 'cv', 'cover letter', 'linkedin', 'bio', 'portfolio', 'my experience', 'my skill', 'about me'];
   return triggers.some(t => q.includes(t));
 }
 
@@ -1740,11 +1735,10 @@ function buildDocsContext() {
     if (!raw) return '';
     const docs = JSON.parse(raw);
     if (!Array.isArray(docs) || docs.length === 0) return '';
-    // Trim each doc to 3000 chars max to stay within token limits
     const parts = docs.map(d =>
-      '=== ' + d.name + ' ===\n' + d.text.slice(0, 3000) + (d.text.length > 3000 ? '\n[...trimmed]' : '') + '\n=== end ==='
+      '=== ' + d.name + ' ===\n' + d.text.slice(0, 2000) + (d.text.length > 2000 ? '\n[trimmed]' : '')
     );
-    return '\n\n[MY DOCUMENTS]\n' + parts.join('\n\n') + '\n[END DOCUMENTS]';
+    return '\n\n[MY DOCS]\n' + parts.join('\n') + '\n[END]';
   } catch { return ''; }
 }
 
@@ -2118,8 +2112,9 @@ async function ask() {
   const target = addAssistantPlaceholder();
   // Only inject document context when the question is likely about personal/career topics
   const docsCtx = needsDocsContext(t) ? buildDocsContext() : '';
-  const userContent = docsCtx ? t + docsCtx : t;
-  history.push({ role: 'user', content: userContent });
+  const msgForApi = docsCtx ? t + docsCtx : t;
+  // Store only the clean user text in history (not docs) to avoid token bloat
+  history.push({ role: 'user', content: t });
   if (backendSel.value === 'echo') {
     await new Promise(r => setTimeout(r, 200));
     target.textContent = image ? 'Echo (would have looked at the screen): ' + t : 'Echo: ' + t;
@@ -2127,15 +2122,22 @@ async function ask() {
     saveHistory();
     return;
   }
-  if (backendSel.value === 'groq')     return streamGroq(target, image);
-  if (backendSel.value === 'gemini')   return streamGemini(target, image);
-  if (backendSel.value === 'openai')   return streamOpenAI(target, image);
-  if (backendSel.value === 'claude')   return streamClaude(target, image);
-  if (backendSel.value === 'deepseek') return streamDeepSeek(target, image);
-  if (backendSel.value === 'grok')     return streamGrok(target, image);
-  if (backendSel.value === 'mistral')  return streamMistral(target, image);
-  if (backendSel.value === 'nvidia')   return streamNvidia(target, image);
-  if (backendSel.value === 'ollama')   return streamOllama(target, image);
+  // Temporarily inject docs into the last history entry for the API call, then restore
+  if (docsCtx) history[history.length - 1].content = msgForApi;
+  const streamResult = (() => {
+    if (backendSel.value === 'groq')     return streamGroq(target, image);
+    if (backendSel.value === 'gemini')   return streamGemini(target, image);
+    if (backendSel.value === 'openai')   return streamOpenAI(target, image);
+    if (backendSel.value === 'claude')   return streamClaude(target, image);
+    if (backendSel.value === 'deepseek') return streamDeepSeek(target, image);
+    if (backendSel.value === 'grok')     return streamGrok(target, image);
+    if (backendSel.value === 'mistral')  return streamMistral(target, image);
+    if (backendSel.value === 'nvidia')   return streamNvidia(target, image);
+    if (backendSel.value === 'ollama')   return streamOllama(target, image);
+  })();
+  await streamResult;
+  // Restore clean user text in history (without docs) to save tokens on future turns
+  if (docsCtx) history[history.length - 2].content = t;
 }
 
 sendBtn.addEventListener('click', ask);
