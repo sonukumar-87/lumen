@@ -22,6 +22,7 @@
     "appId": "app.lumen.overlay",
     "productName": "Lumen",
     "asar": true,
+    "npmRebuild": false,
     "files": [
       "main.js",
       "preload.js",
@@ -37,16 +38,12 @@
       "target": [
         {
           "target": "dmg",
-          "arch": [
-            "arm64",
-            "x64"
-          ]
+          "arch": ["arm64"]
         }
       ],
-      "hardenedRuntime": true,
+      "hardenedRuntime": false,
       "gatekeeperAssess": false,
-      "entitlements": "build/entitlements.mac.plist",
-      "entitlementsInherit": "build/entitlements.mac.plist",
+      "identity": null,
       "extendInfo": {
         "NSMicrophoneUsageDescription": "Lumen uses the microphone to transcribe what you say into a text prompt for the AI.",
         "NSCameraUsageDescription": "Lumen does not use the camera.",
@@ -58,16 +55,8 @@
       "title": "Lumen ${version}",
       "iconSize": 96,
       "contents": [
-        {
-          "x": 130,
-          "y": 220
-        },
-        {
-          "x": 410,
-          "y": 220,
-          "type": "link",
-          "path": "/Applications"
-        }
+        { "x": 130, "y": 220 },
+        { "x": 410, "y": 220, "type": "link", "path": "/Applications" }
       ]
     }
   }
