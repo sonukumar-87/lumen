@@ -1747,7 +1747,7 @@ const DEFAULT_NEGATIVE_PROMPT = 'Be concise. No disclaimers, no filler, no over-
 async function streamGroq(target, image) {
   const k = currentKey();
   if (!k) { target.textContent = 'No Groq API key.'; target.classList.add('err'); return; }
-  const priorTurns = history.slice(0, -1);
+  const priorTurns = history.slice(-5, -1); // max 4 prior turns to save tokens
   const lastUserText = history[history.length - 1].content;
   const userContent = image
     ? [{ type: 'text', text: lastUserText }, { type: 'image_url', image_url: { url: image } }]
@@ -1776,7 +1776,7 @@ async function streamGemini(target, image) {
   if (!k) { target.textContent = 'No Gemini API key.'; target.classList.add('err'); return; }
   const url = 'https://generativelanguage.googleapis.com/v1beta/models/' + encodeURIComponent(image ? (VISION_DEFAULTS.gemini || modelInput.value) : modelInput.value)
             + ':streamGenerateContent?alt=sse&key=' + encodeURIComponent(k);
-  const priorTurns = history.slice(0, -1);
+  const priorTurns = history.slice(-5, -1); // max 4 prior turns to save tokens
   const lastUserText = history[history.length - 1].content;
   const contents = priorTurns.map(m => ({ role: m.role === 'assistant' ? 'model' : m.role, parts: [{ text: m.content }] }));
   const lastParts = [{ text: lastUserText }];
@@ -1818,7 +1818,7 @@ async function streamGemini(target, image) {
 }
 
 async function streamOllama(target, image) {
-  const priorTurns = history.slice(0, -1);
+  const priorTurns = history.slice(-5, -1); // max 4 prior turns to save tokens
   const lastUserText = history[history.length - 1].content;
   const lastUserMsg = { role: 'user', content: lastUserText };
   if (image) lastUserMsg.images = [image.split(',')[1]];
@@ -1865,7 +1865,7 @@ async function streamOllama(target, image) {
 async function streamOpenAI(target, image) {
   const k = currentKey();
   if (!k) { target.textContent = 'No OpenAI API key.'; target.classList.add('err'); return; }
-  const priorTurns = history.slice(0, -1);
+  const priorTurns = history.slice(-5, -1); // max 4 prior turns to save tokens
   const lastUserText = history[history.length - 1].content;
   const modelToUse = image ? (VISION_DEFAULTS.openai || modelInput.value) : modelInput.value;
   const userContent = image
@@ -1891,7 +1891,7 @@ async function streamOpenAI(target, image) {
 async function streamClaude(target, image) {
   const k = currentKey();
   if (!k) { target.textContent = 'No Anthropic API key.'; target.classList.add('err'); return; }
-  const priorTurns = history.slice(0, -1);
+  const priorTurns = history.slice(-5, -1); // max 4 prior turns to save tokens
   const lastUserText = history[history.length - 1].content;
   const modelToUse = image ? (VISION_DEFAULTS.claude || modelInput.value) : modelInput.value;
   const messages = priorTurns.map(m => ({ role: m.role === 'assistant' ? 'assistant' : 'user', content: m.content }));
@@ -1942,7 +1942,7 @@ async function streamDeepSeek(target, image) {
   const k = currentKey();
   if (!k) { target.textContent = 'No DeepSeek API key.'; target.classList.add('err'); return; }
   if (image) { target.textContent += '[Note: DeepSeek API does not support image input — text only]\n\n'; }
-  const priorTurns = history.slice(0, -1);
+  const priorTurns = history.slice(-5, -1); // max 4 prior turns to save tokens
   const lastUserText = history[history.length - 1].content;
   const body = {
     model: modelInput.value, stream: true, temperature: 0.3,
@@ -1964,7 +1964,7 @@ async function streamDeepSeek(target, image) {
 async function streamGrok(target, image) {
   const k = currentKey();
   if (!k) { target.textContent = 'No xAI API key.'; target.classList.add('err'); return; }
-  const priorTurns = history.slice(0, -1);
+  const priorTurns = history.slice(-5, -1); // max 4 prior turns to save tokens
   const lastUserText = history[history.length - 1].content;
   const modelToUse = image ? (VISION_DEFAULTS.grok || modelInput.value) : modelInput.value;
   const userContent = image
@@ -1990,7 +1990,7 @@ async function streamGrok(target, image) {
 async function streamMistral(target, image) {
   const k = currentKey();
   if (!k) { target.textContent = 'No Mistral API key.'; target.classList.add('err'); return; }
-  const priorTurns = history.slice(0, -1);
+  const priorTurns = history.slice(-5, -1); // max 4 prior turns to save tokens
   const lastUserText = history[history.length - 1].content;
   const modelToUse = image ? (VISION_DEFAULTS.mistral || modelInput.value) : modelInput.value;
   const userContent = image
@@ -2017,7 +2017,7 @@ async function streamNvidia(target, image) {
   const k = currentKey();
   if (!k) { target.textContent = 'No NVIDIA NIM API key (nvapi-…).'; target.classList.add('err'); return; }
   if (image) { target.textContent += '[Note: image input skipped for text-only models]\n\n'; }
-  const priorTurns = history.slice(0, -1);
+  const priorTurns = history.slice(-5, -1); // max 4 prior turns to save tokens
   const lastUserText = history[history.length - 1].content;
   const body = {
     model: modelInput.value,
