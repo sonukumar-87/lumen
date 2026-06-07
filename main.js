@@ -165,6 +165,19 @@ app.whenReady().then(() => {
     return net.fetch(pathToFileURL(abs).toString());
   });
 
+  // Inject permissive CORS headers on all API responses so fetch() from the
+  // lumen:// origin works with every LLM provider (NVIDIA, Anthropic, etc.)
+  session.defaultSession.webRequest.onHeadersReceived((details, callback) => {
+    callback({
+      responseHeaders: {
+        ...details.responseHeaders,
+        'Access-Control-Allow-Origin': ['*'],
+        'Access-Control-Allow-Headers': ['*'],
+        'Access-Control-Allow-Methods': ['GET, POST, OPTIONS'],
+      },
+    });
+  });
+
   // Ask for microphone access up front so the first listen click doesn't fail
   // silently. Screen recording perm is requested on first share-screen click.
   if (process.platform === 'darwin') {
