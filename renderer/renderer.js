@@ -79,7 +79,7 @@ const recentList = $('rb-recent');
 
 // ── State ───────────────────────────────────────────────────────────────────
 const LS_HISTORY = 'lumen.chatHistory';
-const HISTORY_MAX_TURNS = 40; // keep last 40 turns (20 exchanges) to stay within context limits
+const HISTORY_MAX_TURNS = 10; // keep last 10 turns to stay within token limits
 
 function loadHistory() {
   try {
@@ -1629,28 +1629,34 @@ function systemPrompt(hasImage) {
   return base + ' Keep answers tight and grounded. ' + negative;
 }
 
-// Build the docs context — injected as a SEPARATE user message, not in system prompt,
-// to avoid token limit issues and ensure the AI sees document content properly.
+// Build the docs context — only injected when the question is relevant to personal documents.
+// Check if the user's question likely needs document context.
+function needsDocsContext(question) {
+  const q = question.toLowerCase();
+  const triggers = [
+    'resume', 'cv', 'cover letter', 'job', 'role', 'position', 'apply', 'application',
+    'skill', 'experience', 'project', 'work', 'career', 'linkedin', 'bio', 'portfolio',
+    'certificate', 'education', 'qualification', 'hire', 'interview', 'salary',
+    'my background', 'about me', 'who am i', 'my experience', 'my skill',
+  ];
+  return triggers.some(t => q.includes(t));
+}
+
 function buildDocsContext() {
   try {
     const raw = localStorage.getItem('lumen.personalDocs');
     if (!raw) return '';
     const docs = JSON.parse(raw);
     if (!Array.isArray(docs) || docs.length === 0) return '';
+    // Trim each doc to 3000 chars max to stay within token limits
     const parts = docs.map(d =>
-      '=== ' + d.name + ' ===\n' + d.text + '\n=== end of ' + d.name + ' ==='
+      '=== ' + d.name + ' ===\n' + d.text.slice(0, 3000) + (d.text.length > 3000 ? '\n[...trimmed]' : '') + '\n=== end ==='
     );
-    return '\n\n[PERSONAL DOCUMENTS — use these when relevant to the question]\n\n' + parts.join('\n\n');
+    return '\n\n[MY DOCUMENTS]\n' + parts.join('\n\n') + '\n[END DOCUMENTS]';
   } catch { return ''; }
 }
 
-const DEFAULT_NEGATIVE_PROMPT = [
-  'Do not invent information that is not visible in the attached image or stated by the user.',
-  'Do not pad with disclaimers, boilerplate, or restating the question.',
-  'Do not use marketing language, hype, or filler ("In conclusion…", "I hope this helps…", "As an AI…").',
-  'Do not list every option when one clear answer is best.',
-  'Do not over-explain when the user asked for a short answer.',
-].join(' ');
+const DEFAULT_NEGATIVE_PROMPT = 'Be concise. No disclaimers, no filler, no over-explaining.';
 
 async function streamGroq(target, image) {
   const k = currentKey();
@@ -1996,8 +2002,8 @@ async function ask() {
   if (image) attachThumb(userBubble, image);
   input.value = '';
   const target = addAssistantPlaceholder();
-  // Inject document context as part of the user message if docs are stored
-  const docsCtx = buildDocsContext();
+  // Only inject document context when the question is likely about personal/career topics
+  const docsCtx = needsDocsContext(t) ? buildDocsContext() : '';
   const userContent = docsCtx ? t + docsCtx : t;
   history.push({ role: 'user', content: userContent });
   if (backendSel.value === 'echo') {
@@ -2134,8 +2140,8 @@ if (aboutHotkeys) {
 // PERSONAL DOCUMENTS — stored in localStorage, auto-injected into system prompt
 // ─────────────────────────────────────────────────────────────────────────────
 const LS_DOCS = 'lumen.personalDocs'; // [{ name, text, size, addedAt }]
-const MAX_DOC_CHARS = 40000;          // ~10k tokens — keep context reasonable
-const MAX_DOCS = 10;
+const MAX_DOC_CHARS = 8000;           // ~2k tokens per doc — keeps API requests manageable
+const MAX_DOCS = 5;
 
 const docUploadInput  = $('doc-upload-input');
 const docList         = $('doc-list');
