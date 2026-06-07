@@ -1626,8 +1626,22 @@ function systemPrompt(hasImage) {
     ? 'You are Lumen, a concise privacy-first desktop overlay. A live screenshot of the user\'s screen is attached. Look at it carefully and ground your answer in what you actually see.'
     : 'You are Lumen, a concise privacy-first desktop overlay.';
   const negative = (localStorage.getItem('lumen.negativePrompt') || DEFAULT_NEGATIVE_PROMPT).trim();
-  const docsCtx = buildDocsContext();
-  return base + ' Keep answers tight and grounded. ' + negative + docsCtx;
+  return base + ' Keep answers tight and grounded. ' + negative;
+}
+
+// Build the docs context — injected as a SEPARATE user message, not in system prompt,
+// to avoid token limit issues and ensure the AI sees document content properly.
+function buildDocsContext() {
+  try {
+    const raw = localStorage.getItem('lumen.personalDocs');
+    if (!raw) return '';
+    const docs = JSON.parse(raw);
+    if (!Array.isArray(docs) || docs.length === 0) return '';
+    const parts = docs.map(d =>
+      '=== ' + d.name + ' ===\n' + d.text + '\n=== end of ' + d.name + ' ==='
+    );
+    return '\n\n[PERSONAL DOCUMENTS — use these when relevant to the question]\n\n' + parts.join('\n\n');
+  } catch { return ''; }
 }
 
 const DEFAULT_NEGATIVE_PROMPT = [
@@ -1982,7 +1996,10 @@ async function ask() {
   if (image) attachThumb(userBubble, image);
   input.value = '';
   const target = addAssistantPlaceholder();
-  history.push({ role: 'user', content: t });
+  // Inject document context as part of the user message if docs are stored
+  const docsCtx = buildDocsContext();
+  const userContent = docsCtx ? t + docsCtx : t;
+  history.push({ role: 'user', content: userContent });
   if (backendSel.value === 'echo') {
     await new Promise(r => setTimeout(r, 200));
     target.textContent = image ? 'Echo (would have looked at the screen): ' + t : 'Echo: ' + t;
@@ -2247,16 +2264,6 @@ if (docClearAll) {
     renderDocList();
     updateDocStatus();
   });
-}
-
-// Build the docs context string to inject into system prompt
-function buildDocsContext() {
-  const docs = loadDocs();
-  if (docs.length === 0) return '';
-  const parts = docs.map(d =>
-    '=== Document: ' + d.name + ' ===\n' + d.text + '\n=== End of ' + d.name + ' ==='
-  );
-  return '\n\n--- PERSONAL DOCUMENTS (use these as context when relevant) ---\n' + parts.join('\n\n') + '\n--- END OF PERSONAL DOCUMENTS ---';
 }
 
 // Initialise on load
