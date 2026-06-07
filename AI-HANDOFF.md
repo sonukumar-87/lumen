@@ -191,6 +191,23 @@ Continuous screen share still uses `getDisplayMedia` (live stream, different cod
 
 ---
 
+## Current visual design (v0.8)
+
+The UI uses a **glassmorphism** aesthetic with:
+- **Color palette**: Purple/violet (#8b5cf6) + cyan (#22d3ee) accents on a near-black base (#09090f)
+- **Animated gradient orbs**: Floating radial gradients that slowly animate behind all content
+- **Glass panels**: Sidebar, header, rightbar, status bar use `backdrop-filter:blur(20px)` with semi-transparent backgrounds
+- **Animated gradient heading**: The greeting text shimmers with a moving gradient (purple → cyan)
+- **Floating input bar**: Command bar is a glass pill with purple glow border, no hard attachment to edges
+- **Large UI elements**: 14px base font, 38px avatars, generous padding/whitespace
+- **Card hover effects**: Elements lift with translateY + scale + purple glow shadows on hover
+- **Rounded corners**: 10–24px radius throughout (no sharp corners anywhere)
+- **Gradient brand mark**: Purple → cyan rounded square logo
+- **Glowing status indicators**: Double-layered box-shadow glows on all status dots
+- **Staggered entrance animations**: Suggestion cards and messages animate in with cubic-bezier timing
+
+---
+
 ## Testing
 
 ```sh
@@ -232,7 +249,7 @@ All tests must pass. Never delete a test to make it pass.
 | New quick action | `renderer.js` — `SUGGESTION_PROMPTS`; `index.html` — `.sugg` card |
 | Tweak system / negative prompt | `renderer.js` — `systemPrompt()` and `DEFAULT_NEGATIVE_PROMPT` |
 | Add Settings field | `index.html` — row in `#pane-settings`; `renderer.js` — load/save to `localStorage` |
-| Change colors / spacing | `index.html` — `:root` CSS variables in `<style>` |
+| Change colors / spacing | `index.html` — `:root` CSS variables in `<style>` (current theme: purple/violet + cyan glassmorphism with animated gradient orbs) |
 | New global hotkey | `main.js` — `registerHotkeys()`; add row to hotkeys modal in `index.html` |
 
 ---

@@ -7,8 +7,18 @@ Inspired by Cluely. Plain Electron + HTML/JS — no React, no build pipeline.
 
 ---
 
-## What's new in v0.7.0
+## What's new in v0.8.0
 
+- **Major visual redesign**: Complete UI overhaul with glassmorphism aesthetic
+  - Purple/violet + cyan color palette (replaces blue theme)
+  - Animated floating gradient orbs in background
+  - Glass panels with backdrop-filter blur throughout
+  - Animated gradient text on greeting heading
+  - Floating glass pill input bar with purple glow
+  - Larger UI elements, more whitespace, bigger fonts
+  - Staggered entrance animations on cards
+  - Hover lift effects with glow shadows
+  - Rounded corners (10–24px) everywhere
 - **8 LLM backends**: Groq, Google Gemini, OpenAI, Claude (Anthropic), DeepSeek, Grok (xAI), Mistral AI, Ollama
 - **Model version picker**: each backend now shows a dropdown of all known model versions — pick any version or type a custom model ID
 - **Claude updated to Opus 4.8** (latest)

@@ -5,10 +5,11 @@ This is a manual visual / hardware-dependent checklist that complements
 
 ## What changed
 
-Three coordinated changes:
+Four coordinated changes:
+- **Full visual redesign (v0.8)**: Glassmorphism aesthetic with purple/cyan palette, animated gradient orbs background, floating glass input bar, larger UI elements, staggered animations
 - **See-through opacity toggle** with button + `⌘⇧O` hotkey, cycling 100% → 70% → 40% → 100%
 - **UI polish**: collapsible settings, consistent button styles, native tooltips, transcript actions toolbar
-- **CSS animations**: chat bubble fade-in, button hover, settings expand, typing pulse, transcribing shimmer, opacity tween
+- **CSS animations**: chat bubble fade-in, button hover with glow, entrance animations, typing pulse, transcribing shimmer, opacity tween
 
 All animations respect `prefers-reduced-motion: reduce`.
 
