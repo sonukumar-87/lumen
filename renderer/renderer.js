@@ -525,6 +525,25 @@ function relativeTime(ts) {
   return Math.floor(diff / 86400) + 'd';
 }
 
+// TTS voice selection — prefer high-quality macOS voices
+function getBestVoice() {
+  const voices = speechSynthesis.getVoices();
+  // Prefer these high-quality voices (in order): Samantha, Karen, Daniel, Moira
+  const preferred = ['Samantha', 'Karen', 'Daniel', 'Moira', 'Alex', 'Rishi'];
+  for (const name of preferred) {
+    const v = voices.find(v => v.name === name);
+    if (v) return v;
+  }
+  // Fallback: any English voice
+  const eng = voices.find(v => v.lang.startsWith('en'));
+  return eng || voices[0] || null;
+}
+// Pre-load voices (they load async on some systems)
+speechSynthesis.getVoices();
+if (speechSynthesis.onvoiceschanged !== undefined) {
+  speechSynthesis.onvoiceschanged = () => {};
+}
+
 function addMsg(role, text) {
   const row = document.createElement('div');
   row.className = 'msg-row ' + role;
@@ -565,8 +584,8 @@ function addMsg(role, text) {
     // TTS
     spans[1].addEventListener('click', () => {
       if (speechSynthesis.speaking) { speechSynthesis.cancel(); spans[1].innerHTML = '&#x266B;'; return; }
-      const u = new SpeechSynthesisUtterance(d.innerText);
-      u.rate = 1.1; u.onend = () => { spans[1].innerHTML = '&#x266B;'; };
+      const u = new SpeechSynthesisUtterance(d.innerText); const v = getBestVoice(); if (v) u.voice = v;
+      u.rate = 1.0; u.pitch = 1.0; u.onend = () => { spans[1].innerHTML = '&#x266B;'; };
       spans[1].innerHTML = '&#x25A0;';
       speechSynthesis.speak(u);
     });
@@ -633,8 +652,8 @@ function addResponseActions(el) {
   });
   spans[1].addEventListener("click", () => {
     if (speechSynthesis.speaking) { speechSynthesis.cancel(); spans[1].innerHTML = "&#x266B;"; return; }
-    const u = new SpeechSynthesisUtterance(el.innerText);
-    u.rate = 1.1; u.onend = () => { spans[1].innerHTML = "&#x266B;"; };
+    const u = new SpeechSynthesisUtterance(el.innerText); const v = getBestVoice(); if (v) u.voice = v;
+    u.rate = 1.0; u.pitch = 1.0; u.onend = () => { spans[1].innerHTML = "&#x266B;"; };
     spans[1].innerHTML = "&#x25A0;";
     speechSynthesis.speak(u);
   });
