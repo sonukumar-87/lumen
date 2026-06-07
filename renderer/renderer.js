@@ -1115,16 +1115,19 @@ function openCropOverlay(dataUrl) {
       const actions = document.createElement('div');
       actions.className = 'crop-actions';
       actions.style.cssText =
-        'position:absolute;bottom:14px;left:50%;transform:translateX(-50%);' +
-        'display:flex;gap:8px;background:rgba(0,0,0,0.55);padding:6px;border-radius:10px;';
+        'position:absolute;bottom:20px;left:50%;transform:translateX(-50%);' +
+        'display:flex;gap:10px;background:rgba(0,0,0,0.75);padding:10px 14px;border-radius:12px;' +
+        'pointer-events:all;z-index:100000;backdrop-filter:blur(10px);' +
+        'border:1px solid rgba(255,255,255,0.15);box-shadow:0 8px 30px rgba(0,0,0,0.5);';
       function mkBtn(label, fn, primary) {
         const b = document.createElement('button');
         b.textContent = label;
         b.style.cssText =
-          'padding:6px 12px;border-radius:7px;border:1px solid rgba(255,255,255,0.15);' +
-          'background:' + (primary ? '#7aa2ff' : 'rgba(255,255,255,0.06)') + ';' +
-          'color:' + (primary ? '#0b0d12' : '#fff') + ';' +
-          'font:12px -apple-system,system-ui,sans-serif;cursor:pointer;';
+          'padding:8px 14px;border-radius:8px;border:1px solid rgba(255,255,255,0.2);' +
+          'background:' + (primary ? 'linear-gradient(135deg,#8b5cf6,#6d28d9)' : 'rgba(255,255,255,0.1)') + ';' +
+          'color:#fff;font:13px -apple-system,system-ui,sans-serif;cursor:pointer;' +
+          'pointer-events:all;position:relative;z-index:100000;';
+        b.addEventListener('mousedown', (ev) => { ev.stopPropagation(); });
         b.addEventListener('click', (ev) => { ev.stopPropagation(); fn(); });
         return b;
       }
@@ -1168,6 +1171,8 @@ if (snapInputBtn) {
       const result = await L.captureScreen();
       // Bring Lumen back regardless of result.
       try { L.show && L.show(); } catch (_) {}
+      // Give window time to regain focus after show
+      await new Promise(r => setTimeout(r, 150));
       if (!result || !result.ok) {
         setStatus('screenshot failed: ' + (result && result.error ? result.error : 'unknown'), false);
         return;
