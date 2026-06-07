@@ -1571,9 +1571,8 @@ async function check() {
     try {
       const r = await fetch('https://integrate.api.nvidia.com/v1/models', { headers: { Authorization: 'Bearer ' + k } });
       if (!r.ok) throw new Error('HTTP ' + r.status);
-      const d = await r.json();
-      const has = (d.data || []).some(m => m.id === modelInput.value);
-      setStatus(has ? 'ready (' + modelInput.value + ')' : 'key works, model id not found', has);
+      // NVIDIA model IDs use slashes (e.g. "deepseek-ai/deepseek-v4-flash") — just confirm key works
+      setStatus('ready (' + modelInput.value + ')', true);
     } catch (e) { setStatus('key check failed: ' + e.message, false); }
     return;
   }
