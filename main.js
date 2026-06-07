@@ -176,15 +176,9 @@ app.whenReady().then(() => {
     return net.fetch(pathToFileURL(abs).toString());
   });
 
-  // Ask for microphone access up front so the first listen click doesn't fail
-  // silently. Screen recording perm is requested on first share-screen click.
-  if (process.platform === 'darwin') {
-    try {
-      if (systemPreferences.getMediaAccessStatus('microphone') !== 'granted') {
-        systemPreferences.askForMediaAccess('microphone').catch(() => {});
-      }
-    } catch {}
-  }
+  // Microphone and screen permissions are requested on-demand when the user
+  // clicks Listen or Screenshot — NOT at startup. This prevents the permission
+  // popup from appearing every time the app launches after re-signing.
   createWindow();
   registerHotkeys();
 });
