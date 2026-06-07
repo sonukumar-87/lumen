@@ -554,28 +554,27 @@ function addMsg(role, text) {
   const meta = document.createElement('div');
   meta.className = 'msg-meta';
   if (role === 'assistant') {
-    meta.innerHTML = '<span class="msg-actions"><span title="Copy" style="cursor:pointer">⎘</span><span title="Read aloud" style="cursor:pointer">�</span><span title="Regenerate" style="cursor:pointer">�</span></span>';
+    meta.innerHTML = '<span class="msg-actions"><span title="Copy" style="cursor:pointer">&#x2398;</span><span title="Read aloud" style="cursor:pointer">&#x266B;</span><span title="Regenerate" style="cursor:pointer">&#x21BB;</span></span>';
     const spans = meta.querySelectorAll('.msg-actions span');
     // Copy
     spans[0].addEventListener('click', () => {
       navigator.clipboard.writeText(d.innerText).then(() => {
-        spans[0].textContent = '✓'; setTimeout(() => { spans[0].textContent = '⎘'; }, 1500);
+        spans[0].innerHTML = '&#x2713;'; setTimeout(() => { spans[0].innerHTML = '&#x2398;'; }, 1500);
       }).catch(() => {});
     });
     // TTS
     spans[1].addEventListener('click', () => {
-      if (speechSynthesis.speaking) { speechSynthesis.cancel(); spans[1].textContent = '🔊'; return; }
+      if (speechSynthesis.speaking) { speechSynthesis.cancel(); spans[1].innerHTML = '&#x266B;'; return; }
       const u = new SpeechSynthesisUtterance(d.innerText);
-      u.rate = 1.1; u.onend = () => { spans[1].textContent = '🔊'; };
-      spans[1].textContent = '⏹';
+      u.rate = 1.1; u.onend = () => { spans[1].innerHTML = '&#x266B;'; };
+      spans[1].innerHTML = '&#x25A0;';
       speechSynthesis.speak(u);
     });
     // Regenerate
     spans[2].addEventListener('click', () => {
-      // Remove this response from history and re-ask the last user message
       if (history.length >= 2) {
-        history.pop(); // remove assistant
-        const lastUser = history.pop(); // remove user
+        history.pop();
+        const lastUser = history.pop();
         if (lastUser) { input.value = lastUser.content; ask(); }
       }
     });
