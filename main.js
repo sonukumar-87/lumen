@@ -165,19 +165,6 @@ app.whenReady().then(() => {
     return net.fetch(pathToFileURL(abs).toString());
   });
 
-  // Inject permissive CORS headers on all API responses so fetch() from the
-  // lumen:// origin works with every LLM provider (NVIDIA, Anthropic, etc.)
-  session.defaultSession.webRequest.onHeadersReceived((details, callback) => {
-    callback({
-      responseHeaders: {
-        ...details.responseHeaders,
-        'Access-Control-Allow-Origin': ['*'],
-        'Access-Control-Allow-Headers': ['*'],
-        'Access-Control-Allow-Methods': ['GET, POST, OPTIONS'],
-      },
-    });
-  });
-
   // Ask for microphone access up front so the first listen click doesn't fail
   // silently. Screen recording perm is requested on first share-screen click.
   if (process.platform === 'darwin') {
@@ -235,6 +222,22 @@ ipcMain.on('lumen:open-perm-screen', () => {
 ipcMain.on('lumen:open-perm-mic', () => {
   if (process.platform === 'darwin') {
     shell.openExternal('x-apple.systempreferences:com.apple.preference.security?Privacy_Microphone');
+  }
+});
+
+// LLM API proxy — routes fetch requests through the main process to bypass
+// CORS restrictions that block requests from the lumen:// renderer origin.
+ipcMain.handle('lumen:api-fetch', async (_evt, { url, method, headers, body }) => {
+  try {
+    const res = await net.fetch(url, {
+      method: method || 'POST',
+      headers: headers || {},
+      body: body || undefined,
+    });
+    const text = await res.text();
+    return { ok: res.ok, status: res.status, text };
+  } catch (e) {
+    return { ok: false, status: 0, text: '', error: (e && e.message) || String(e) };
   }
 });
 

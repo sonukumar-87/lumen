@@ -23,6 +23,10 @@ contextBridge.exposeInMainWorld('lumen', {
 
   captureScreen: () => ipcRenderer.invoke('lumen:capture-screen'),
 
+  // Proxy LLM API fetch calls through the main process to bypass CORS
+  apiFetch: (url, method, headers, body) =>
+    ipcRenderer.invoke('lumen:api-fetch', { url, method, headers, body }),
+
   onFocusInput:         (cb) => ipcRenderer.on('focus-input',  ()      => cb()),
   onClickThroughChange: (cb) => ipcRenderer.on('click-through', (_, v) => cb(v)),
   onOpacityCycle:       (cb) => ipcRenderer.on('opacity-cycle', ()     => cb()),

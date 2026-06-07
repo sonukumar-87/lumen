@@ -1490,7 +1490,7 @@ async function check() {
   if (backendSel.value === 'groq') {
     const k = currentKey(); if (!k) return setStatus('paste a Groq API key', false);
     try {
-      const r = await fetch('https://api.groq.com/openai/v1/models', { headers: { Authorization: 'Bearer ' + k } });
+      const r = await apiFetch('https://api.groq.com/openai/v1/models', { headers: { Authorization: 'Bearer ' + k } });
       if (!r.ok) throw new Error('HTTP ' + r.status);
       const d = await r.json();
       const has = (d.data || []).some(m => m.id === modelInput.value);
@@ -1501,7 +1501,7 @@ async function check() {
   if (backendSel.value === 'gemini') {
     const k = currentKey(); if (!k) return setStatus('paste a Gemini API key', false);
     try {
-      const r = await fetch('https://generativelanguage.googleapis.com/v1beta/models?key=' + encodeURIComponent(k));
+      const r = await apiFetch('https://generativelanguage.googleapis.com/v1beta/models?key=' + encodeURIComponent(k));
       if (!r.ok) throw new Error('HTTP ' + r.status);
       const d = await r.json();
       const has = (d.models || []).some(m => m.name.endsWith('/' + modelInput.value));
@@ -1512,7 +1512,7 @@ async function check() {
   if (backendSel.value === 'openai') {
     const k = currentKey(); if (!k) return setStatus('paste an OpenAI API key', false);
     try {
-      const r = await fetch('https://api.openai.com/v1/models', { headers: { Authorization: 'Bearer ' + k } });
+      const r = await apiFetch('https://api.openai.com/v1/models', { headers: { Authorization: 'Bearer ' + k } });
       if (!r.ok) throw new Error('HTTP ' + r.status);
       const d = await r.json();
       const has = (d.data || []).some(m => m.id === modelInput.value);
@@ -1523,7 +1523,7 @@ async function check() {
   if (backendSel.value === 'claude') {
     const k = currentKey(); if (!k) return setStatus('paste an Anthropic API key', false);
     try {
-      const r = await fetch('https://api.anthropic.com/v1/models', {
+      const r = await apiFetch('https://api.anthropic.com/v1/models', {
         headers: { 'x-api-key': k, 'anthropic-version': '2023-06-01' },
       });
       if (!r.ok) throw new Error('HTTP ' + r.status);
@@ -1536,7 +1536,7 @@ async function check() {
   if (backendSel.value === 'deepseek') {
     const k = currentKey(); if (!k) return setStatus('paste a DeepSeek API key', false);
     try {
-      const r = await fetch('https://api.deepseek.com/models', { headers: { Authorization: 'Bearer ' + k } });
+      const r = await apiFetch('https://api.deepseek.com/models', { headers: { Authorization: 'Bearer ' + k } });
       if (!r.ok) throw new Error('HTTP ' + r.status);
       const d = await r.json();
       const has = (d.data || []).some(m => m.id === modelInput.value);
@@ -1547,7 +1547,7 @@ async function check() {
   if (backendSel.value === 'grok') {
     const k = currentKey(); if (!k) return setStatus('paste an xAI API key', false);
     try {
-      const r = await fetch('https://api.x.ai/v1/models', { headers: { Authorization: 'Bearer ' + k } });
+      const r = await apiFetch('https://api.x.ai/v1/models', { headers: { Authorization: 'Bearer ' + k } });
       if (!r.ok) throw new Error('HTTP ' + r.status);
       const d = await r.json();
       const has = (d.data || []).some(m => m.id === modelInput.value);
@@ -1558,7 +1558,7 @@ async function check() {
   if (backendSel.value === 'mistral') {
     const k = currentKey(); if (!k) return setStatus('paste a Mistral API key', false);
     try {
-      const r = await fetch('https://api.mistral.ai/v1/models', { headers: { Authorization: 'Bearer ' + k } });
+      const r = await apiFetch('https://api.mistral.ai/v1/models', { headers: { Authorization: 'Bearer ' + k } });
       if (!r.ok) throw new Error('HTTP ' + r.status);
       const d = await r.json();
       const has = (d.data || []).some(m => m.id === modelInput.value);
@@ -1569,7 +1569,7 @@ async function check() {
   if (backendSel.value === 'nvidia') {
     const k = currentKey(); if (!k) return setStatus('paste an NVIDIA NIM API key (nvapi-…)', false);
     try {
-      const r = await fetch('https://integrate.api.nvidia.com/v1/models', { headers: { Authorization: 'Bearer ' + k } });
+      const r = await apiFetch('https://integrate.api.nvidia.com/v1/models', { headers: { Authorization: 'Bearer ' + k } });
       if (!r.ok) throw new Error('HTTP ' + r.status);
       // NVIDIA model IDs use slashes (e.g. "deepseek-ai/deepseek-v4-flash") — just confirm key works
       setStatus('ready (' + modelInput.value + ')', true);
@@ -1591,6 +1591,35 @@ pingBtn.addEventListener('click', check);
 // ─────────────────────────────────────────────────────────────────────────────
 // LLM BACKENDS (with optional image attachment)
 // ─────────────────────────────────────────────────────────────────────────────
+
+// apiFetch — tries direct fetch first; if it fails with a network/CORS error,
+// falls back to the main-process IPC proxy (L.apiFetch) which has no CORS restrictions.
+// Returns a standard Response-like object with { ok, status, body (ReadableStream or text) }.
+async function apiFetch(url, options) {
+  // Try direct fetch first (works for most providers from lumen:// origin)
+  try {
+    const res = await fetch(url, options);
+    return res;
+  } catch (e) {
+    // Network/CORS error — fall back to IPC proxy
+    if (!L.apiFetch) throw e;
+    const bodyStr = options.body ? (typeof options.body === 'string' ? options.body : options.body) : undefined;
+    const result = await L.apiFetch(url, options.method || 'POST', options.headers || {}, bodyStr);
+    if (result.error) throw new Error(result.error);
+    // Wrap the text result in a Response-like object that streamSSE can consume
+    const encoder = new TextEncoder();
+    const bytes = encoder.encode(result.text);
+    const stream = new ReadableStream({
+      start(controller) { controller.enqueue(bytes); controller.close(); },
+    });
+    return new Response(stream, {
+      status: result.status,
+      ok: result.ok,
+      headers: { 'content-type': 'text/event-stream' },
+    });
+  }
+}
+
 function systemPrompt(hasImage) {
   const base = hasImage
     ? 'You are Lumen, a concise privacy-first desktop overlay. A live screenshot of the user\'s screen is attached. Look at it carefully and ground your answer in what you actually see.'
@@ -1625,7 +1654,7 @@ async function streamGroq(target, image) {
   };
   let res;
   try {
-    res = await fetch('https://api.groq.com/openai/v1/chat/completions', {
+    res = await apiFetch('https://api.groq.com/openai/v1/chat/completions', {
       method: 'POST',
       headers: { 'Content-Type': 'application/json', Authorization: 'Bearer ' + k },
       body: JSON.stringify(body),
@@ -1649,7 +1678,7 @@ async function streamGemini(target, image) {
   const body = { contents, systemInstruction: { parts: [{ text: systemPrompt(!!image) }] }, generationConfig: { temperature: 0.3 } };
   let res;
   try {
-    res = await fetch(url, { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(body) });
+    res = await apiFetch(url, { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(body) });
   } catch (e) { target.textContent = 'Network error: ' + e.message; target.classList.add('err'); return; }
   if (!res.ok) { const t = await res.text(); target.textContent = 'Gemini ' + res.status + ': ' + t.slice(0, 300); target.classList.add('err'); return; }
 
@@ -1735,7 +1764,7 @@ async function streamOpenAI(target, image) {
   };
   let res;
   try {
-    res = await fetch('https://api.openai.com/v1/chat/completions', {
+    res = await apiFetch('https://api.openai.com/v1/chat/completions', {
       method: 'POST',
       headers: { 'Content-Type': 'application/json', Authorization: 'Bearer ' + k },
       body: JSON.stringify(body),
@@ -1760,7 +1789,7 @@ async function streamClaude(target, image) {
   const body = { model: modelToUse, max_tokens: 2048, stream: true, system: systemPrompt(!!image), messages };
   let res;
   try {
-    res = await fetch('https://api.anthropic.com/v1/messages', {
+    res = await apiFetch('https://api.anthropic.com/v1/messages', {
       method: 'POST',
       headers: { 'Content-Type': 'application/json', 'x-api-key': k, 'anthropic-version': '2023-06-01' },
       body: JSON.stringify(body),
@@ -1805,7 +1834,7 @@ async function streamDeepSeek(target, image) {
   };
   let res;
   try {
-    res = await fetch('https://api.deepseek.com/chat/completions', {
+    res = await apiFetch('https://api.deepseek.com/chat/completions', {
       method: 'POST',
       headers: { 'Content-Type': 'application/json', Authorization: 'Bearer ' + k },
       body: JSON.stringify(body),
@@ -1831,7 +1860,7 @@ async function streamGrok(target, image) {
   };
   let res;
   try {
-    res = await fetch('https://api.x.ai/v1/chat/completions', {
+    res = await apiFetch('https://api.x.ai/v1/chat/completions', {
       method: 'POST',
       headers: { 'Content-Type': 'application/json', Authorization: 'Bearer ' + k },
       body: JSON.stringify(body),
@@ -1857,7 +1886,7 @@ async function streamMistral(target, image) {
   };
   let res;
   try {
-    res = await fetch('https://api.mistral.ai/v1/chat/completions', {
+    res = await apiFetch('https://api.mistral.ai/v1/chat/completions', {
       method: 'POST',
       headers: { 'Content-Type': 'application/json', Authorization: 'Bearer ' + k },
       body: JSON.stringify(body),
@@ -1884,7 +1913,7 @@ async function streamNvidia(target, image) {
   };
   let res;
   try {
-    res = await fetch('https://integrate.api.nvidia.com/v1/chat/completions', {
+    res = await apiFetch('https://integrate.api.nvidia.com/v1/chat/completions', {
       method: 'POST',
       headers: { 'Content-Type': 'application/json', Authorization: 'Bearer ' + k },
       body: JSON.stringify(body),
