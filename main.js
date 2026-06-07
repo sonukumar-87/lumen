@@ -258,7 +258,6 @@ ipcMain.handle('lumen:capture-screen', async () => {
     const primary = screen.getPrimaryDisplay();
     const { width, height } = primary.size;
     const scale = primary.scaleFactor || 1;
-    // Cap the long edge at ~1600 logical px to keep the image reasonable.
     const maxLong = 1600;
     const longEdge = Math.max(width, height);
     const thumbScale = Math.min(1, maxLong / longEdge);
@@ -272,7 +271,6 @@ ipcMain.handle('lumen:capture-screen', async () => {
       if (process.platform === 'darwin') shell.openExternal('x-apple.systempreferences:com.apple.preference.security?Privacy_ScreenCapture');
       return { ok: false, error: 'no screen sources — screen recording permission needed' };
     }
-    // Prefer the primary display's source; fall back to the first.
     const src = sources.find(s => Number(s.display_id) === primary.id) || sources[0];
     if (!src.thumbnail || src.thumbnail.isEmpty()) return { ok: false, error: 'empty thumbnail' };
     return { ok: true, dataUrl: src.thumbnail.toDataURL() };
