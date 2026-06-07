@@ -598,24 +598,54 @@ function addMsg(role, text) {
 }
 
 function addAssistantPlaceholder() {
-  const row = document.createElement('div');
-  row.className = 'msg-row assistant';
-  const av = document.createElement('div');
-  av.className = 'avatar';
-  av.textContent = '🤖';
+  const row = document.createElement("div");
+  row.className = "msg-row assistant";
+  const av = document.createElement("div");
+  av.className = "avatar";
+  av.innerHTML = "&#x1F916;";
   row.appendChild(av);
-
-  const d = document.createElement('div');
-  d.className = 'msg assistant';
-  const t = document.createElement('span');
-  t.className = 'typing';
+  const wrap = document.createElement("div");
+  wrap.style.cssText = "display:flex;flex-direction:column;max-width:100%;min-width:0";
+  const d = document.createElement("div");
+  d.className = "msg assistant";
+  const t = document.createElement("span");
+  t.className = "typing";
   t.innerHTML = '<span class="typing-dot"></span><span class="typing-dot"></span><span class="typing-dot"></span>';
   d.appendChild(t);
-  row.appendChild(d);
-
+  wrap.appendChild(d);
+  row.appendChild(wrap);
   chat.appendChild(row);
   chat.scrollTop = chat.scrollHeight;
   return d;
+}
+
+function addResponseActions(el) {
+  const wrap = el.parentElement;
+  if (!wrap || wrap.querySelector(".msg-meta")) return;
+  const meta = document.createElement("div");
+  meta.className = "msg-meta";
+  meta.innerHTML = '<span class="msg-actions"><span title="Copy" style="cursor:pointer">&#x2398;</span> <span title="Read aloud" style="cursor:pointer">&#x266B;</span> <span title="Regenerate" style="cursor:pointer">&#x21BB;</span></span>';
+  const spans = meta.querySelectorAll(".msg-actions span");
+  spans[0].addEventListener("click", () => {
+    navigator.clipboard.writeText(el.innerText).then(() => {
+      spans[0].innerHTML = "&#x2713;"; setTimeout(() => { spans[0].innerHTML = "&#x2398;"; }, 1500);
+    }).catch(() => {});
+  });
+  spans[1].addEventListener("click", () => {
+    if (speechSynthesis.speaking) { speechSynthesis.cancel(); spans[1].innerHTML = "&#x266B;"; return; }
+    const u = new SpeechSynthesisUtterance(el.innerText);
+    u.rate = 1.1; u.onend = () => { spans[1].innerHTML = "&#x266B;"; };
+    spans[1].innerHTML = "&#x25A0;";
+    speechSynthesis.speak(u);
+  });
+  spans[2].addEventListener("click", () => {
+    if (history.length >= 2) { history.pop(); const lu = history.pop(); if (lu) { input.value = lu.content; ask(); } }
+  });
+  const ts = document.createElement("span");
+  ts.style.marginLeft = "auto";
+  ts.textContent = nowTimeShort();
+  meta.appendChild(ts);
+  wrap.appendChild(meta);
 }
 
 function attachThumb(parent, dataUrl) {
@@ -1819,13 +1849,13 @@ async function streamGemini(target, image) {
         const obj = JSON.parse(data);
         const parts = obj?.candidates?.[0]?.content?.parts || [];
         for (const p of parts) {
-          if (p.text) { full += p.text; cur.remove(); target.innerHTML = renderMarkdown(full); target.appendChild(cur); chat.scrollTop = chat.scrollHeight; }
+          if (p.text) { full += p.text; cur.remove(); target.innerHTML = renderMarkdown(full); addResponseActions(target); target.appendChild(cur); chat.scrollTop = chat.scrollHeight; }
         }
       } catch {}
     }
   }
   cur.remove();
-  target.innerHTML = renderMarkdown(full);
+  target.innerHTML = renderMarkdown(full); addResponseActions(target);
   history.push({ role: 'assistant', content: full });
   saveHistory();
   const estTokensG = Math.round((JSON.stringify(history).length) / 4);
@@ -1862,14 +1892,14 @@ async function streamOllama(target, image) {
       try {
         const o = JSON.parse(line);
         if (o.message && o.message.content) {
-          full += o.message.content; cur.remove(); target.innerHTML = renderMarkdown(full); target.appendChild(cur);
+          full += o.message.content; cur.remove(); target.innerHTML = renderMarkdown(full); addResponseActions(target); target.appendChild(cur);
           chat.scrollTop = chat.scrollHeight;
         }
       } catch {}
     }
   }
   cur.remove();
-  target.innerHTML = renderMarkdown(full);
+  target.innerHTML = renderMarkdown(full); addResponseActions(target);
   history.push({ role: 'assistant', content: full });
   saveHistory();
   const estTokensO = Math.round((JSON.stringify(history).length) / 4);
@@ -1938,14 +1968,14 @@ async function streamClaude(target, image) {
       try {
         const obj = JSON.parse(data);
         if (obj.type === 'content_block_delta' && obj.delta && obj.delta.type === 'text_delta') {
-          full += obj.delta.text; cur.remove(); target.innerHTML = renderMarkdown(full); target.appendChild(cur); chat.scrollTop = chat.scrollHeight;
+          full += obj.delta.text; cur.remove(); target.innerHTML = renderMarkdown(full); addResponseActions(target); target.appendChild(cur); chat.scrollTop = chat.scrollHeight;
         }
         if (obj.type === 'message_stop') break;
       } catch {}
     }
   }
   cur.remove();
-  target.innerHTML = renderMarkdown(full);
+  target.innerHTML = renderMarkdown(full); addResponseActions(target);
   history.push({ role: 'assistant', content: full });
   saveHistory();
   const estTokensC = Math.round((JSON.stringify(history).length) / 4);
@@ -2064,7 +2094,7 @@ async function streamNvidia(target, image) {
     // Also show reasoning if present
     const reasoning = parsed?.choices?.[0]?.message?.reasoning_content || '';
     const full = reasoning ? '<think>\n' + reasoning + '\n</think>\n\n' + content : content;
-    target.innerHTML = renderMarkdown(full);
+    target.innerHTML = renderMarkdown(full); addResponseActions(target);
     history.push({ role: 'assistant', content: content });
     saveHistory();
     const estTokensN = Math.round((JSON.stringify(history).length) / 4);
@@ -2090,7 +2120,7 @@ async function streamSSE(res, target) {
       const data = line.slice(5).trim();
       if (data === '[DONE]') {
         cur.remove();
-        target.innerHTML = renderMarkdown(full);
+        target.innerHTML = renderMarkdown(full); addResponseActions(target);
         history.push({ role: 'assistant', content: full });
         saveHistory();
         const estTokens = Math.round((JSON.stringify(history).length) / 4);
@@ -2100,12 +2130,12 @@ async function streamSSE(res, target) {
       try {
         const obj = JSON.parse(data);
         const d = obj?.choices?.[0]?.delta?.content;
-        if (d) { full += d; cur.remove(); target.innerHTML = renderMarkdown(full); target.appendChild(cur); chat.scrollTop = chat.scrollHeight; }
+        if (d) { full += d; cur.remove(); target.innerHTML = renderMarkdown(full); addResponseActions(target); target.appendChild(cur); chat.scrollTop = chat.scrollHeight; }
       } catch {}
     }
   }
   cur.remove();
-  target.innerHTML = renderMarkdown(full);
+  target.innerHTML = renderMarkdown(full); addResponseActions(target);
   history.push({ role: 'assistant', content: full });
   saveHistory();
   const estTokens = Math.round((JSON.stringify(history).length) / 4);
