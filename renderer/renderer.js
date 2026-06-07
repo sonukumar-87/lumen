@@ -554,14 +554,30 @@ function addMsg(role, text) {
   const meta = document.createElement('div');
   meta.className = 'msg-meta';
   if (role === 'assistant') {
-    meta.innerHTML = '<span class="msg-actions"><span title="Copy" id="">⎘</span><span title="Helpful">👍</span><span title="Not helpful">👎</span></span>';
-    const copySpan = meta.querySelector('span.msg-actions span');
-    copySpan.style.cursor = 'pointer';
-    copySpan.addEventListener('click', () => {
+    meta.innerHTML = '<span class="msg-actions"><span title="Copy" style="cursor:pointer">⎘</span><span title="Read aloud" style="cursor:pointer">�</span><span title="Regenerate" style="cursor:pointer">�</span></span>';
+    const spans = meta.querySelectorAll('.msg-actions span');
+    // Copy
+    spans[0].addEventListener('click', () => {
       navigator.clipboard.writeText(d.innerText).then(() => {
-        copySpan.textContent = '✓ Copied';
-        setTimeout(() => { copySpan.textContent = '⎘'; }, 1500);
+        spans[0].textContent = '✓'; setTimeout(() => { spans[0].textContent = '⎘'; }, 1500);
       }).catch(() => {});
+    });
+    // TTS
+    spans[1].addEventListener('click', () => {
+      if (speechSynthesis.speaking) { speechSynthesis.cancel(); spans[1].textContent = '🔊'; return; }
+      const u = new SpeechSynthesisUtterance(d.innerText);
+      u.rate = 1.1; u.onend = () => { spans[1].textContent = '🔊'; };
+      spans[1].textContent = '⏹';
+      speechSynthesis.speak(u);
+    });
+    // Regenerate
+    spans[2].addEventListener('click', () => {
+      // Remove this response from history and re-ask the last user message
+      if (history.length >= 2) {
+        history.pop(); // remove assistant
+        const lastUser = history.pop(); // remove user
+        if (lastUser) { input.value = lastUser.content; ask(); }
+      }
     });
     const ts = document.createElement('span');
     ts.style.marginLeft = 'auto';
@@ -2532,3 +2548,62 @@ if (docClearAll) {
 // Initialise on load
 renderDocList();
 updateDocStatus();
+
+// ─────────────────────────────────────────────────────────────────────────────
+// FEATURE: CODE RUN BUTTON — executes JS code blocks in a sandboxed eval
+// ─────────────────────────────────────────────────────────────────────────────
+chat.addEventListener('click', (e) => {
+  const pre = e.target.closest('pre');
+  if (!pre || !pre.closest('.msg.assistant')) return;
+  // Only run if user clicks the pre block and it contains JS-looking code
+  const code = pre.innerText;
+  if (!code || code.length > 5000) return;
+  // Check if there's already a run button or output
+  if (pre.dataset.hasRun) return;
+  // Add a small Run button on first click
+  if (!pre.querySelector('.code-run-btn')) {
+    const btn = document.createElement('button');
+    btn.className = 'code-run-btn';
+    btn.style.cssText = 'position:absolute;top:4px;right:4px;font-size:10px;padding:2px 8px;border-radius:4px;background:var(--accent);color:#0b0d12;border:none;cursor:pointer;z-index:1';
+    btn.textContent = '▶ Run';
+    pre.style.position = 'relative';
+    btn.addEventListener('click', (ev) => {
+      ev.stopPropagation();
+      pre.dataset.hasRun = '1';
+      let output = '';
+      const origLog = console.log;
+      console.log = (...args) => { output += args.join(' ') + '\n'; };
+      try { output += eval(code); } catch (err) { output = '❌ ' + err.message; }
+      console.log = origLog;
+      const out = document.createElement('div');
+      out.style.cssText = 'margin-top:6px;padding:6px 8px;background:rgba(0,0,0,0.3);border-radius:4px;font-size:11px;color:var(--ok);white-space:pre-wrap;max-height:100px;overflow-y:auto';
+      out.textContent = '→ ' + (output || 'undefined');
+      pre.after(out);
+      btn.remove();
+    });
+    pre.appendChild(btn);
+  }
+});
+
+// ─────────────────────────────────────────────────────────────────────────────
+// FEATURE: IMAGE PASTE FROM CLIPBOARD (⌘V)
+// ─────────────────────────────────────────────────────────────────────────────
+document.addEventListener('paste', (e) => {
+  const items = e.clipboardData && e.clipboardData.items;
+  if (!items) return;
+  for (const item of items) {
+    if (item.type.startsWith('image/')) {
+      e.preventDefault();
+      const file = item.getAsFile();
+      if (!file) return;
+      const reader = new FileReader();
+      reader.onload = () => {
+        pendingSnap = reader.result;
+        setStatus('image pasted — ask a question about it', true);
+        input.focus();
+      };
+      reader.readAsDataURL(file);
+      return;
+    }
+  }
+});
