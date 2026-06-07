@@ -27,3 +27,7 @@ lumen/tests/repro/observed-counterexample.log
 # Local env
 .env
 .env.local
+lumen-0.7.0.tar.gz
+lumen.zip
+dist/
+*.dmg

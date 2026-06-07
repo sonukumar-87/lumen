@@ -558,6 +558,34 @@
     .nav-item, .rb-item, .sb-toggle, .wctl button, .input-shell, .pill-btn { transition: none !important; }
   }
 
+  /* ── Markdown rendering styles ──────────────────────────────────────────── */
+  .msg.assistant { white-space: normal; }
+  .msg.assistant pre { background:var(--code-bg); border:1px solid var(--border); border-radius:6px; padding:10px; overflow-x:auto; margin:6px 0; white-space:pre; }
+  .msg.assistant code { font-family: ui-monospace,"SF Mono",monospace; font-size:0.9em; background:var(--code-bg); padding:1px 4px; border-radius:3px; }
+  .msg.assistant pre code { background:none; padding:0; }
+  .msg.assistant h3,.msg.assistant h4 { margin:8px 0 4px; color:var(--fg); }
+  .msg.assistant ul,.msg.assistant ol { padding-left:20px; margin:4px 0; }
+  .msg.assistant li { margin:2px 0; }
+  .msg.assistant strong { color:var(--fg); }
+  .msg.assistant p { margin:4px 0; }
+  .msg.assistant p:first-child { margin-top:0; }
+  .msg.assistant p:last-child { margin-bottom:0; }
+  .msg-copy-btn { cursor:pointer; user-select:none; }
+
+  /* ── Light theme ────────────────────────────────────────────────────────── */
+  body.light {
+    --bg:#f5f5f7; --bg-1:#ffffff; --bg-2:#ebebf0; --bg-3:#e0e0e8;
+    --fg:#1c1c1e; --fg-dim:#3a3a3c; --muted:#636366; --muted-2:#8e8e93;
+    --border:rgba(0,0,0,0.12); --border-2:rgba(0,0,0,0.06);
+    --code-bg:rgba(0,0,0,0.05);
+  }
+  body.light {
+    background:
+      radial-gradient(1200px 600px at 80% -10%, rgba(122,162,255,0.05), transparent 60%),
+      radial-gradient(900px 500px at -10% 110%, rgba(91,140,255,0.04), transparent 60%),
+      linear-gradient(180deg, rgba(245,245,247,0.98), rgba(235,235,240,0.98));
+  }
+
   /* ── COMPACT (≤700px) — collapse sidebar to icons, hide right bar ─── */
   @media (max-width: 700px) {
     .body { grid-template-columns: 56px 1fr; }
@@ -601,6 +629,7 @@
     <div class="wctl">
       <span id="opacity-badge" class="opacity-badge" title="Window opacity">100%</span>
       <input type="range" id="opacity" class="opacity-slider" min="20" max="100" step="1" value="100" title="Drag to set window opacity (⌘⇧O cycles 100/70/40)" />
+      <button id="theme-toggle" class="wctl" style="font-size:12px;padding:0 6px;border-radius:8px;border:1px solid var(--border);background:transparent;color:var(--muted);cursor:pointer;width:auto;height:26px;" title="Toggle light/dark theme">☀️</button>
       <button id="hotkeys-btn" title="Show hotkeys (?)">?</button>
       <button id="zoom-out" title="Decrease chat font (⌘−)">A−</button>
       <button id="zoom-in" title="Increase chat font (⌘+)">A+</button>
@@ -679,7 +708,8 @@
       <!-- CHAT PANE -->
       <div class="pane" id="pane-chat">
         <div class="chat-area">
-          <div class="greeting">
+          <div class="greeting" style="position:relative">
+            <button class="btn ghost" id="new-chat-btn" style="position:absolute;top:10px;right:10px;font-size:11px;padding:4px 10px;z-index:1">✚ New Chat</button>
             <div class="greeting-text">
               <h1 id="greeting">Good evening, User.</h1>
               <p>How can I help you today?</p>
@@ -739,6 +769,7 @@
                 <button class="pill-btn" id="mic-input" title="Toggle microphone (Whisper)" type="button">🎤 Listen</button>
                 <button class="pill-btn" id="snap-input" title="Capture one frame and attach to next prompt" type="button">📷 Screenshot</button>
                 <button class="pill-btn" id="share-input" title="Toggle continuous screen sharing" type="button">🖥 Share</button>
+                <button class="pill-btn" id="export-chat" title="Export chat as Markdown" type="button">📥 Export</button>
                 <button class="pill-btn" id="clear" title="Clear chat history" type="button">🗑 Clear</button>
               </div>
               <button class="send-btn" id="send" title="Send (⌘⏎)" type="button">↗</button>
@@ -785,12 +816,13 @@
 
       <!-- NOTES PANE -->
       <div class="pane" id="pane-notes" hidden>
-        <div class="empty">
-          <div class="empty-card">
-            <div class="icon-big">📝</div>
-            <h3>Notes</h3>
-            <p>Notes coming soon. For now use the chat to draft.</p>
+        <div style="display:flex;flex-direction:column;height:100%;padding:12px 16px;gap:8px">
+          <div style="display:flex;align-items:center;gap:8px">
+            <span style="font-size:13px;font-weight:600;color:var(--fg)">📝 Notes</span>
+            <span style="flex:1"></span>
+            <button class="btn ghost" id="notes-clear" style="font-size:11px;padding:3px 8px;color:var(--danger)">Clear</button>
           </div>
+          <textarea id="notes-area" placeholder="Jot anything here — saved automatically…" style="flex:1;resize:none;padding:10px;font-size:13px;line-height:1.5;background:var(--bg-2);border:1px solid var(--border);border-radius:10px;color:var(--fg);outline:none"></textarea>
         </div>
       </div>
 
@@ -861,6 +893,15 @@
             <div class="row" style="margin-top:8px">
               <button class="btn ghost" id="neg-save">Save</button>
               <button class="btn ghost" id="neg-reset">Reset to defaults</button>
+            </div>
+          </div>
+
+          <h3 style="margin-top:18px">AI Persona</h3>
+          <div class="group">
+            <div class="col">
+              <span class="lbl">Custom persona — replaces default system prompt</span>
+              <textarea id="persona-prompt" rows="2" style="width:100%;padding:8px 10px;min-height:54px;" placeholder="e.g. You are an expert software engineer. Be technical and precise."></textarea>
+              <button class="btn ghost" id="persona-save" style="align-self:flex-start;margin-top:4px">Save persona</button>
             </div>
           </div>
 

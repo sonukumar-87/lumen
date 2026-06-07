@@ -91,12 +91,23 @@ function createWindow() {
     async (_request, callback) => {
       try {
         const sources = await desktopCapturer.getSources({ types: ['screen', 'window'] });
-        if (!sources.length) return callback({});
+        if (!sources.length) {
+          // No sources = screen recording permission denied — open System Settings
+          if (process.platform === 'darwin') {
+            shell.openExternal('x-apple.systempreferences:com.apple.preference.security?Privacy_ScreenCapture');
+          }
+          return callback({});
+        }
         const primaryScreen = sources.find(s => s.id.startsWith('screen:')) || sources[0];
         callback({ video: primaryScreen, audio: false });
-      } catch { callback({}); }
+      } catch {
+        if (process.platform === 'darwin') {
+          shell.openExternal('x-apple.systempreferences:com.apple.preference.security?Privacy_ScreenCapture');
+        }
+        callback({});
+      }
     },
-    { useSystemPicker: true }
+    { useSystemPicker: false }
   );
 
   win.loadURL('lumen://app/index.html');
@@ -263,7 +274,10 @@ ipcMain.handle('lumen:capture-screen', async () => {
       types: ['screen'],
       thumbnailSize: { width: thumbW, height: thumbH },
     });
-    if (!sources.length) return { ok: false, error: 'no screen sources' };
+    if (!sources.length) {
+      if (process.platform === 'darwin') shell.openExternal('x-apple.systempreferences:com.apple.preference.security?Privacy_ScreenCapture');
+      return { ok: false, error: 'no screen sources — screen recording permission needed' };
+    }
     // Prefer the primary display's source; fall back to the first.
     const src = sources.find(s => Number(s.display_id) === primary.id) || sources[0];
     if (!src.thumbnail || src.thumbnail.isEmpty()) return { ok: false, error: 'empty thumbnail' };

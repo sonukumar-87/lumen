@@ -6,6 +6,85 @@
 // ── License gate disabled (was blocking activation in packaged build) ──────
 // Distribution control is now via "only ship the .dmg to invited users".
 
+// ── Markdown renderer ────────────────────────────────────────────────────────
+function renderMarkdown(text) {
+  if (!text) return '';
+  let s = text;
+
+  // Escape HTML entities first (prevent XSS from AI output)
+  s = s.replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;');
+
+  // Fenced code blocks (``` ... ```) — process before inline code
+  s = s.replace(/```[\s\S]*?```/g, (m) => {
+    const inner = m.slice(3, -3).replace(/^\n/, '');
+    // inner may already be html-escaped — that's fine
+    return '<pre><code>' + inner + '</code></pre>';
+  });
+
+  // Inline code (`code`)
+  s = s.replace(/`([^`\n]+)`/g, '<code>$1</code>');
+
+  // Process line by line for headings and lists
+  const lines = s.split('\n');
+  const out = [];
+  let inUl = false, inOl = false;
+
+  for (let i = 0; i < lines.length; i++) {
+    let line = lines[i];
+
+    // Skip lines already inside pre blocks (don't double-process)
+    if (line.startsWith('<pre>') || line.startsWith('</pre>') || inUl === 'pre') {
+      if (line.startsWith('<pre>')) inUl = 'pre';
+      if (line.includes('</pre>')) inUl = false;
+      out.push(line);
+      continue;
+    }
+
+    // Close open lists if the line doesn't start with a list marker
+    const isUlLine = /^[-*]\s+/.test(line);
+    const isOlLine = /^\d+\.\s+/.test(line);
+    if (!isUlLine && inUl && inUl !== 'pre') { out.push('</ul>'); inUl = false; }
+    if (!isOlLine && inOl) { out.push('</ol>'); inOl = false; }
+
+    // Headings
+    if (/^## /.test(line)) {
+      line = '<h4>' + line.slice(3) + '</h4>';
+    } else if (/^# /.test(line)) {
+      line = '<h3>' + line.slice(2) + '</h3>';
+    }
+    // Unordered list
+    else if (isUlLine) {
+      if (!inUl) { out.push('<ul>'); inUl = true; }
+      line = '<li>' + line.replace(/^[-*]\s+/, '') + '</li>';
+    }
+    // Ordered list
+    else if (isOlLine) {
+      if (!inOl) { out.push('<ol>'); inOl = true; }
+      line = '<li>' + line.replace(/^\d+\.\s+/, '') + '</li>';
+    }
+
+    out.push(line);
+  }
+  // Close any open lists
+  if (inUl && inUl !== 'pre') out.push('</ul>');
+  if (inOl) out.push('</ol>');
+
+  s = out.join('\n');
+
+  // Bold: **text** or __text__
+  s = s.replace(/\*\*(.+?)\*\*/g, '<strong>$1</strong>');
+  s = s.replace(/__(.+?)__/g, '<strong>$1</strong>');
+
+  // Italic: *text* or _text_ (not inside words)
+  s = s.replace(/(?<![a-zA-Z0-9])\*([^*\n]+)\*(?![a-zA-Z0-9])/g, '<em>$1</em>');
+  s = s.replace(/(?<![a-zA-Z0-9])_([^_\n]+)_(?![a-zA-Z0-9])/g, '<em>$1</em>');
+
+  // Paragraph breaks: double newline → </p><p>
+  s = s.replace(/\n\n+/g, '</p><p>');
+
+  return '<p>' + s + '</p>';
+}
+
 const L = window.lumen || {
   platform: 'browser',
   quit() {}, hide() {}, minimize() {}, show() {},
@@ -465,13 +544,25 @@ function addMsg(role, text) {
 
   const d = document.createElement('div');
   d.className = 'msg ' + role;
-  d.textContent = text;
+  if (role === 'assistant') {
+    d.innerHTML = renderMarkdown(text);
+  } else {
+    d.textContent = text;
+  }
   wrap.appendChild(d);
 
   const meta = document.createElement('div');
   meta.className = 'msg-meta';
   if (role === 'assistant') {
-    meta.innerHTML = '<span class="msg-actions"><span title="Copy">⎘</span><span title="Helpful">👍</span><span title="Not helpful">👎</span></span>';
+    meta.innerHTML = '<span class="msg-actions"><span title="Copy" id="">⎘</span><span title="Helpful">👍</span><span title="Not helpful">👎</span></span>';
+    const copySpan = meta.querySelector('span.msg-actions span');
+    copySpan.style.cursor = 'pointer';
+    copySpan.addEventListener('click', () => {
+      navigator.clipboard.writeText(d.innerText).then(() => {
+        copySpan.textContent = '✓ Copied';
+        setTimeout(() => { copySpan.textContent = '⎘'; }, 1500);
+      }).catch(() => {});
+    });
     const ts = document.createElement('span');
     ts.style.marginLeft = 'auto';
     ts.textContent = nowTimeShort();
@@ -1622,9 +1713,10 @@ async function apiFetch(url, options) {
 }
 
 function systemPrompt(hasImage) {
+  const persona = (localStorage.getItem('lumen.persona') || '').trim();
   const base = hasImage
     ? 'You are Lumen, a concise privacy-first desktop overlay. A live screenshot of the user\'s screen is attached. Look at it carefully and ground your answer in what you actually see.'
-    : 'You are Lumen, a concise privacy-first desktop overlay.';
+    : (persona || 'You are Lumen, a concise privacy-first desktop overlay.');
   const negative = (localStorage.getItem('lumen.negativePrompt') || DEFAULT_NEGATIVE_PROMPT).trim();
   return base + ' Keep answers tight and grounded. ' + negative;
 }
@@ -1705,7 +1797,7 @@ async function streamGemini(target, image) {
 
   const reader = res.body.getReader(), dec = new TextDecoder();
   let buf = '', full = '';
-  const cur = document.createElement('span'); cur.className = 'cursor'; target.textContent = ''; target.appendChild(cur);
+  const cur = document.createElement('span'); cur.className = 'cursor'; target.innerHTML = ''; target.appendChild(cur);
   while (true) {
     const { value, done } = await reader.read(); if (done) break;
     buf += dec.decode(value, { stream: true });
@@ -1718,14 +1810,17 @@ async function streamGemini(target, image) {
         const obj = JSON.parse(data);
         const parts = obj?.candidates?.[0]?.content?.parts || [];
         for (const p of parts) {
-          if (p.text) { full += p.text; cur.remove(); target.textContent = full; target.appendChild(cur); chat.scrollTop = chat.scrollHeight; }
+          if (p.text) { full += p.text; cur.remove(); target.innerHTML = renderMarkdown(full); target.appendChild(cur); chat.scrollTop = chat.scrollHeight; }
         }
       } catch {}
     }
   }
   cur.remove();
+  target.innerHTML = renderMarkdown(full);
   history.push({ role: 'assistant', content: full });
   saveHistory();
+  const estTokensG = Math.round((JSON.stringify(history).length) / 4);
+  if (sbContext) sbContext.textContent = '~' + estTokensG + ' tokens used';
 }
 
 async function streamOllama(target, image) {
@@ -1747,7 +1842,7 @@ async function streamOllama(target, image) {
   if (!res.ok) { target.textContent = 'Ollama ' + res.status; target.classList.add('err'); return; }
   const reader = res.body.getReader(), dec = new TextDecoder();
   let buf = '', full = '';
-  const cur = document.createElement('span'); cur.className = 'cursor'; target.textContent = ''; target.appendChild(cur);
+  const cur = document.createElement('span'); cur.className = 'cursor'; target.innerHTML = ''; target.appendChild(cur);
   while (true) {
     const { value, done } = await reader.read(); if (done) break;
     buf += dec.decode(value, { stream: true });
@@ -1758,15 +1853,18 @@ async function streamOllama(target, image) {
       try {
         const o = JSON.parse(line);
         if (o.message && o.message.content) {
-          full += o.message.content; cur.remove(); target.textContent = full; target.appendChild(cur);
+          full += o.message.content; cur.remove(); target.innerHTML = renderMarkdown(full); target.appendChild(cur);
           chat.scrollTop = chat.scrollHeight;
         }
       } catch {}
     }
   }
   cur.remove();
+  target.innerHTML = renderMarkdown(full);
   history.push({ role: 'assistant', content: full });
   saveHistory();
+  const estTokensO = Math.round((JSON.stringify(history).length) / 4);
+  if (sbContext) sbContext.textContent = '~' + estTokensO + ' tokens used';
 }
 
 // ── OpenAI (GPT-4.1, GPT-4o, o1, o3, o4-mini) ───────────────────────────────
@@ -1819,7 +1917,7 @@ async function streamClaude(target, image) {
   if (!res.ok) { const t = await res.text(); target.textContent = 'Claude ' + res.status + ': ' + t.slice(0, 300); target.classList.add('err'); return; }
   const reader = res.body.getReader(), dec = new TextDecoder();
   let buf = '', full = '';
-  const cur = document.createElement('span'); cur.className = 'cursor'; target.textContent = ''; target.appendChild(cur);
+  const cur = document.createElement('span'); cur.className = 'cursor'; target.innerHTML = ''; target.appendChild(cur);
   while (true) {
     const { value, done } = await reader.read(); if (done) break;
     buf += dec.decode(value, { stream: true });
@@ -1831,15 +1929,18 @@ async function streamClaude(target, image) {
       try {
         const obj = JSON.parse(data);
         if (obj.type === 'content_block_delta' && obj.delta && obj.delta.type === 'text_delta') {
-          full += obj.delta.text; cur.remove(); target.textContent = full; target.appendChild(cur); chat.scrollTop = chat.scrollHeight;
+          full += obj.delta.text; cur.remove(); target.innerHTML = renderMarkdown(full); target.appendChild(cur); chat.scrollTop = chat.scrollHeight;
         }
         if (obj.type === 'message_stop') break;
       } catch {}
     }
   }
   cur.remove();
+  target.innerHTML = renderMarkdown(full);
   history.push({ role: 'assistant', content: full });
   saveHistory();
+  const estTokensC = Math.round((JSON.stringify(history).length) / 4);
+  if (sbContext) sbContext.textContent = '~' + estTokensC + ' tokens used';
 }
 
 // ── DeepSeek ──────────────────────────────────────────────────────────────────
@@ -1954,9 +2055,11 @@ async function streamNvidia(target, image) {
     // Also show reasoning if present
     const reasoning = parsed?.choices?.[0]?.message?.reasoning_content || '';
     const full = reasoning ? '<think>\n' + reasoning + '\n</think>\n\n' + content : content;
-    target.textContent = full;
+    target.innerHTML = renderMarkdown(full);
     history.push({ role: 'assistant', content: content });
     saveHistory();
+    const estTokensN = Math.round((JSON.stringify(history).length) / 4);
+    if (sbContext) sbContext.textContent = '~' + estTokensN + ' tokens used';
   } catch (e) {
     cur.remove();
     target.textContent = 'NVIDIA NIM error: ' + e.message;
@@ -1967,7 +2070,7 @@ async function streamNvidia(target, image) {
 async function streamSSE(res, target) {
   const reader = res.body.getReader(), dec = new TextDecoder();
   let buf = '', full = '';
-  const cur = document.createElement('span'); cur.className = 'cursor'; target.textContent = ''; target.appendChild(cur);
+  const cur = document.createElement('span'); cur.className = 'cursor'; target.innerHTML = ''; target.appendChild(cur);
   while (true) {
     const { value, done } = await reader.read(); if (done) break;
     buf += dec.decode(value, { stream: true });
@@ -1976,17 +2079,28 @@ async function streamSSE(res, target) {
       const line = buf.slice(0, nl).trim(); buf = buf.slice(nl + 1);
       if (!line.startsWith('data:')) continue;
       const data = line.slice(5).trim();
-      if (data === '[DONE]') { cur.remove(); history.push({ role: 'assistant', content: full }); saveHistory(); return; }
+      if (data === '[DONE]') {
+        cur.remove();
+        target.innerHTML = renderMarkdown(full);
+        history.push({ role: 'assistant', content: full });
+        saveHistory();
+        const estTokens = Math.round((JSON.stringify(history).length) / 4);
+        if (sbContext) sbContext.textContent = '~' + estTokens + ' tokens used';
+        return;
+      }
       try {
         const obj = JSON.parse(data);
         const d = obj?.choices?.[0]?.delta?.content;
-        if (d) { full += d; cur.remove(); target.textContent = full; target.appendChild(cur); chat.scrollTop = chat.scrollHeight; }
+        if (d) { full += d; cur.remove(); target.innerHTML = renderMarkdown(full); target.appendChild(cur); chat.scrollTop = chat.scrollHeight; }
       } catch {}
     }
   }
   cur.remove();
+  target.innerHTML = renderMarkdown(full);
   history.push({ role: 'assistant', content: full });
   saveHistory();
+  const estTokens = Math.round((JSON.stringify(history).length) / 4);
+  if (sbContext) sbContext.textContent = '~' + estTokens + ' tokens used';
 }
 
 // ─────────────────────────────────────────────────────────────────────────────
@@ -1995,12 +2109,12 @@ async function streamSSE(res, target) {
 async function ask() {
   const t = input.value.trim(); if (!t) return;
   showPane('chat');
-  // Prefer a live screen-share frame; otherwise use a one-shot pendingSnap if present.
   let image = screenStream ? captureFrame() : null;
   if (!image && pendingSnap) { image = pendingSnap; pendingSnap = null; }
   const userBubble = addMsg('user', t);
   if (image) attachThumb(userBubble, image);
   input.value = '';
+  input.style.height = 'auto'; // reset textarea height after send
   const target = addAssistantPlaceholder();
   // Only inject document context when the question is likely about personal/career topics
   const docsCtx = needsDocsContext(t) ? buildDocsContext() : '';
@@ -2035,6 +2149,71 @@ clearBtn.addEventListener('click', () => {
 input.addEventListener('keydown', e => {
   if (e.key === 'Enter' && (e.metaKey || e.ctrlKey)) { e.preventDefault(); ask(); }
 });
+
+// ── New Chat button ─────────────────────────────────────────────────────────
+const newChatBtn = $('new-chat-btn');
+if (newChatBtn) {
+  newChatBtn.addEventListener('click', () => {
+    history = [];
+    localStorage.removeItem(LS_HISTORY);
+    chat.innerHTML = '';
+    recent.length = 0;
+    renderRecent();
+  });
+}
+
+// ── Export chat as Markdown ─────────────────────────────────────────────────
+const exportBtn = $('export-chat');
+if (exportBtn) exportBtn.addEventListener('click', () => {
+  if (!history.length) { setStatus('nothing to export', false); return; }
+  const md = history.map(m => (m.role === 'user' ? '**You:** ' : '**Lumen:** ') + m.content).join('\n\n---\n\n');
+  const blob = new Blob([md], { type: 'text/markdown' });
+  const url = URL.createObjectURL(blob);
+  const a = document.createElement('a');
+  a.href = url; a.download = 'lumen-chat-' + Date.now() + '.md';
+  a.click(); URL.revokeObjectURL(url);
+  setStatus('chat exported', true);
+});
+
+// ── Notes pane ──────────────────────────────────────────────────────────────
+const notesArea = $('notes-area');
+const notesClear = $('notes-clear');
+const LS_NOTES = 'lumen.notes';
+if (notesArea) {
+  notesArea.value = localStorage.getItem(LS_NOTES) || '';
+  notesArea.addEventListener('input', () => localStorage.setItem(LS_NOTES, notesArea.value));
+}
+if (notesClear) notesClear.addEventListener('click', () => { if(notesArea) notesArea.value=''; localStorage.removeItem(LS_NOTES); });
+
+// ── AI Persona ──────────────────────────────────────────────────────────────
+const personaPromptEl = $('persona-prompt');
+const personaSaveBtn = $('persona-save');
+if (personaPromptEl) personaPromptEl.value = localStorage.getItem('lumen.persona') || '';
+if (personaSaveBtn) personaSaveBtn.addEventListener('click', () => {
+  localStorage.setItem('lumen.persona', (personaPromptEl.value||'').trim());
+  setStatus('persona saved', true);
+});
+
+// ── Dark/Light theme toggle ─────────────────────────────────────────────────
+const themeToggle = $('theme-toggle');
+const LS_THEME = 'lumen.theme';
+function applyTheme(t) {
+  document.body.classList.toggle('light', t === 'light');
+  if (themeToggle) themeToggle.textContent = t === 'light' ? '🌙' : '☀️';
+}
+applyTheme(localStorage.getItem(LS_THEME) || 'dark');
+if (themeToggle) themeToggle.addEventListener('click', () => {
+  const next = document.body.classList.contains('light') ? 'dark' : 'light';
+  localStorage.setItem(LS_THEME, next);
+  applyTheme(next);
+});
+
+// Auto-resize textarea as user types — prevents text from splitting weirdly
+function autoResizeInput() {
+  input.style.height = 'auto';
+  input.style.height = Math.min(input.scrollHeight, 120) + 'px';
+}
+input.addEventListener('input', autoResizeInput);
 
 // Global hotkeys at the document level: ⌘K clear, ? open hotkeys, Esc close modal.
 document.addEventListener('keydown', e => {
@@ -2135,6 +2314,83 @@ if (aboutCoffee) {
 if (aboutHotkeys) {
   aboutHotkeys.addEventListener('click', openHotkeys);
 }
+
+// ─────────────────────────────────────────────────────────────────────────────
+// FEATURE: MARKDOWN RENDERING
+// ─────────────────────────────────────────────────────────────────────────────
+function renderMarkdown(text) {
+  if (!text) return '';
+  let html = text;
+  // Escape HTML first to prevent XSS
+  html = html.replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;');
+  // Code blocks (must come before inline code)
+  html = html.replace(/```[\w]*\n?([\s\S]*?)```/g, (_,c) => '<pre><code>' + c.trim() + '</code></pre>');
+  // Inline code
+  html = html.replace(/`([^`]+)`/g, '<code>$1</code>');
+  // Bold
+  html = html.replace(/\*\*([^*]+)\*\*/g, '<strong>$1</strong>');
+  html = html.replace(/__([^_]+)__/g, '<strong>$1</strong>');
+  // Italic
+  html = html.replace(/\*([^*]+)\*/g, '<em>$1</em>');
+  html = html.replace(/_([^_]+)_/g, '<em>$1</em>');
+  // Headers
+  html = html.replace(/^### (.+)$/gm, '<h4>$1</h4>');
+  html = html.replace(/^## (.+)$/gm, '<h3>$1</h3>');
+  html = html.replace(/^# (.+)$/gm, '<h3>$1</h3>');
+  // Lists
+  html = html.replace(/^[\-\*] (.+)$/gm, '<li>$1</li>');
+  html = html.replace(/^\d+\. (.+)$/gm, '<li>$1</li>');
+  html = html.replace(/(<li>.*<\/li>\n?)+/g, m => '<ul>' + m + '</ul>');
+  // Paragraphs — double newlines become paragraph breaks
+  html = html.replace(/\n\n+/g, '</p><p>');
+  // Single newlines → line breaks (but not inside pre tags)
+  html = html.replace(/([^>])\n([^<])/g, '$1<br>$2');
+  html = '<p>' + html + '</p>';
+  // Clean up empty paragraphs
+  html = html.replace(/<p><\/p>/g, '');
+  html = html.replace(/<p>(<(?:pre|ul|ol|h[1-6]))/g, '$1');
+  html = html.replace(/(<\/(?:pre|ul|ol|h[1-6])>)<\/p>/g, '$1');
+  return html;
+}
+
+// Apply markdown to an assistant message element
+function applyMarkdown(el) {
+  if (!el || !el.classList.contains('assistant')) return;
+  const text = el._rawText || el.textContent;
+  if (!text || text.includes('<')) return; // already HTML
+  el._rawText = text;
+  el.innerHTML = renderMarkdown(text);
+}
+
+// ─────────────────────────────────────────────────────────────────────────────
+// FEATURE: COPY BUTTON, NEW CHAT, EXPORT, NOTES, PERSONA, THEME, TOKEN COUNTER
+// ─────────────────────────────────────────────────────────────────────────────
+
+// 2. Copy button — wire up the ⎘ in addMsg
+const _origAddMsg = addMsg;
+function addMsg(role, text) {
+  const d = _origAddMsg(role, text);
+  if (role === 'assistant') {
+    // Wire copy button
+    const copySpan = d.parentElement && d.parentElement.querySelector('.msg-actions span');
+    if (copySpan) {
+      copySpan.classList.add('msg-copy-btn');
+      copySpan.addEventListener('click', () => {
+        const content = d._rawText || d.innerText || d.textContent;
+        navigator.clipboard.writeText(content).then(() => {
+          const orig = copySpan.textContent;
+          copySpan.textContent = '✓';
+          setTimeout(() => { copySpan.textContent = orig; }, 1500);
+        }).catch(() => {});
+      });
+    }
+  }
+  return d;
+}
+
+// 3. New Chat — already wired above at line 2154
+
+// 4–6, 11, 12 — already wired above
 
 // ─────────────────────────────────────────────────────────────────────────────
 // PERSONAL DOCUMENTS — stored in localStorage, auto-injected into system prompt
