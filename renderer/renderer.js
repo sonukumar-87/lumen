@@ -1484,11 +1484,19 @@ async function startSystemChannel() {
 async function startWhisper() {
   stopped = false;
   errored = false;
-  const micOk = await startMicChannel();
-  // Without a mic there is nothing to listen with; reportError already told
-  // the user why.
-  if (!micOk) return;
+  // Loopback capture must be requested while the click that started listening
+  // is still the active user gesture. Awaiting getUserMedia first spends that
+  // gesture, after which getDisplayMedia is rejected — so the system channel
+  // is opened before the microphone, not after.
   const sysOk = await startSystemChannel();
+  const micOk = await startMicChannel();
+  if (!micOk) {
+    // Without a mic there is nothing to listen with. Release the loopback
+    // rather than leaving a capture running behind a stopped session;
+    // reportError has already told the user why the mic failed.
+    if (sysOk) stopChannel(sysChannel);
+    return;
+  }
   listening = true;
   updateListenUI();
   if (sysOk) setStatus('listening — you + them', true);

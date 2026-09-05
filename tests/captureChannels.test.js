@@ -154,10 +154,20 @@ describe('renderer wiring for system audio', () => {
   it('treats a failed system channel as non-fatal so the mic still runs', () => {
     // startSystemChannel returns false rather than throwing; startWhisper only
     // aborts when the microphone itself fails.
-    const start = rendererSrc.indexOf('async function startWhisper(');
-    const body = rendererSrc.slice(start, start + 600);
-    expect(body).toMatch(/if\s*\(!micOk\)\s*return/);
-    expect(body).not.toMatch(/if\s*\(!sysOk\)\s*return/);
+    const body = extractFunction(rendererSrc, 'startWhisper');
+    expect(body).toMatch(/if\s*\(!micOk\)/);
+    expect(body).not.toMatch(/if\s*\(!sysOk\)/);
+    // A mic failure must not strand a live loopback capture.
+    expect(body).toMatch(/if\s*\(sysOk\)\s*stopChannel\(sysChannel\)/);
+  });
+
+  it('opens the loopback before the mic, while the user gesture is still fresh', () => {
+    // getDisplayMedia requires an active user gesture. Awaiting getUserMedia
+    // first spends it, after which loopback capture is rejected — so the
+    // ordering here is load-bearing, not stylistic.
+    const body = extractFunction(rendererSrc, 'startWhisper');
+    expect(body.indexOf('startSystemChannel()'))
+      .toBeLessThan(body.indexOf('startMicChannel()'));
   });
 
   it('screen share still requests audio: false so that path is unchanged', () => {
