@@ -646,6 +646,16 @@
     padding:10px 12px; font-size:12.5px; color:var(--fg); word-wrap:break-word;
   }
   .transcript-text .interim { color:var(--muted); font-style:italic; }
+  /* Speaker-attributed turns — You (mic) vs Them (system audio). */
+  .transcript-text .ts-turn { display:flex; gap:8px; margin:0 0 5px; align-items:baseline; }
+  .transcript-text .ts-turn:last-child { margin-bottom:0; }
+  .transcript-text .ts-who {
+    flex:0 0 auto; min-width:38px; font-size:10.5px; font-weight:600;
+    letter-spacing:.03em; text-transform:uppercase; opacity:.9;
+  }
+  .transcript-text .ts-you  .ts-who { color:var(--accent, #6ea8fe); }
+  .transcript-text .ts-them .ts-who { color:var(--muted); }
+  .transcript-text .ts-said { flex:1 1 auto; }
   .transcript-toolbar { display:flex; gap:6px; align-items:center; flex-wrap:wrap; }
   .transcript-toolbar .spacer { flex:1; }
 
@@ -891,12 +901,22 @@
 
       <!-- LISTEN PANE -->
       <div class="pane" id="pane-listen" hidden>
-        <div class="empty">
-          <div class="empty-card">
-            <div class="icon-big">🎤</div>
-            <h3>Listen</h3>
-            <p>Whisper transcription is running in the background while you chat. Toggle the mic from the sidebar — your transcript appears above the chat.</p>
+        <div class="settings-pane">
+          <h3>Listen</h3>
+          <p style="color:var(--muted); font-size:12px; margin:0 0 14px;">Whisper transcription runs in the background while you chat. Toggle the mic from the sidebar — your transcript appears above the chat.</p>
+
+          <label class="s-label" style="display:block;margin:0 0 6px;">Capture channels</label>
+          <div class="row" style="display:flex;align-items:center;gap:8px;margin:0 0 6px;">
+            <span style="font-size:12.5px;color:var(--fg);flex:1;">🎤 You — microphone</span>
+            <span style="font-size:11px;color:var(--muted);">always on</span>
           </div>
+          <div class="row" style="display:flex;align-items:center;gap:8px;margin:0 0 8px;">
+            <span style="font-size:12.5px;color:var(--fg);flex:1;">🔊 Them — system audio</span>
+            <button class="btn ghost" id="sys-audio-toggle" style="font-size:11px;padding:3px 10px;">On</button>
+          </div>
+          <p style="color:var(--muted); font-size:11.5px; margin:0; line-height:1.5;">
+            System audio is captured before it reaches your speakers or headphones, so the other person is transcribed separately from you instead of bleeding into your microphone. Needs Screen&nbsp;Recording permission. Wearing headphones keeps the two channels cleanest.
+          </p>
         </div>
       </div>
 

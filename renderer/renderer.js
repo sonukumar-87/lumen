@@ -134,6 +134,7 @@ function hideStillPreview() {
 }
 // Mic transcription
 const listenBtn = $('listen'), listenLabel = $('listen-label');
+const sysAudioToggle = $('sys-audio-toggle');
 const transcriptWrap = $('transcript-wrap'), transcriptText = $('transcript-text'),
       transcriptLang = $('transcript-lang'), transcriptUse = $('transcript-use'),
       transcriptAppend = $('transcript-append'), transcriptClear = $('transcript-clear');
@@ -230,22 +231,51 @@ function updateOpacityBadge() {
 }
 
 // ── Whisper_Client state ────────────────────────────────────────────────────
-let mediaStream = null;
-let mediaRecorder = null;
-let chunkSeq = 0;
-let nextAppendSeq = 0;
-const pendingTranscripts = new Map();
-let inFlight = 0;
+// Capture runs on two independent channels so a call has both sides of the
+// conversation without them colliding:
+//
+//   you  — the microphone, via getUserMedia
+//   them — system audio loopback, via getDisplayMedia({ audio: true })
+//
+// A microphone alone cannot separate the two: on speakers it picks up the
+// other participant bleeding out of them mixed with your own voice, and on
+// headphones it cannot hear them at all. Tapping system audio takes the
+// stream before it reaches any speaker, so each channel stays clean and every
+// utterance is attributable to a speaker.
+//
+// Each channel owns its own recorder, chunk sequence, and ordering queue —
+// sharing those would interleave the two streams and scramble both.
+function createCaptureChannel(name, label) {
+  return {
+    name,
+    label,
+    stream: null,
+    recorder: null,
+    recorderOpts: null,
+    chunkSeq: 0,
+    nextAppendSeq: 0,
+    pending: new Map(),
+    inFlight: 0,
+    rotateTimer: null,
+    // Silence detection — Whisper hallucinates ("Thank you", "E aí", etc.)
+    // when fed near-silent audio. Each channel measures the RMS of its own
+    // stream and refuses to POST chunks whose peak over the chunk window is
+    // below threshold.
+    audioCtx: null,
+    analyser: null,
+    rmsTimer: null,
+    peakRMS: 0,
+    active: false,
+  };
+}
+const micChannel = createCaptureChannel('you', 'You');
+const sysChannel = createCaptureChannel('them', 'Them');
+const captureChannels = [micChannel, sysChannel];
 let stopped = false;
-let chunkRotateTimer = null;
 let errored = false;
-// Silence detection — Whisper hallucinates ("Thank you", "E aí", etc.) when
-// fed near-silent audio. We measure RMS of the live mic stream and refuse
-// to POST chunks whose peak RMS over the chunk window is below threshold.
-let audioCtx = null;
-let analyserNode = null;
-let rmsSampleTimer = null;
-let currentChunkPeakRMS = 0;
+// Speaker-attributed transcript. `finalTranscript` stays the plain
+// concatenation so the Use / Append / Clear controls keep working unchanged.
+let transcriptEntries = [];
 const SILENCE_RMS_DEFAULT = 0.018;
 function readSilenceThreshold() {
   const raw = localStorage.getItem('lumen.whisper.silenceRms');
@@ -1305,23 +1335,107 @@ function pickRecorderMime() {
 // ─────────────────────────────────────────────────────────────────────────────
 // WHISPER LIFECYCLE
 // ─────────────────────────────────────────────────────────────────────────────
-let recorderOpts = null;
-
-function onDataAvailable(e) {
-  // `e.target` is the recorder that just flushed. Read the peak RMS we
-  // snapshotted onto it before stop() — falls back to current if absent
-  // (e.g. on natural stopWhisper teardown of the active recorder).
-  const rec = e && e.target;
-  const peak = (rec && typeof rec._peakRMS === 'number') ? rec._peakRMS : currentChunkPeakRMS;
-  enqueueChunk(e.data, peak);
+// System audio is opt-out: it is the only way to hear the other participant,
+// but a user on a shared machine may not want it captured.
+const LS_SYS_AUDIO = 'lumen.capture.systemAudio';
+function systemAudioEnabled() {
+  return localStorage.getItem(LS_SYS_AUDIO) !== '0';
 }
 
-async function startWhisper() {
+function onDataAvailable(ch, e) {
+  // `e.target` is the recorder that just flushed. Read the peak RMS we
+  // snapshotted onto it before stop() — falls back to the channel's current
+  // peak if absent (e.g. on natural teardown of the active recorder).
+  const rec = e && e.target;
+  const peak = (rec && typeof rec._peakRMS === 'number') ? rec._peakRMS : ch.peakRMS;
+  enqueueChunk(ch, e.data, peak);
+}
+
+// Meter a channel's own stream so near-silent chunks are dropped before they
+// reach Whisper. Each channel needs its own meter: the two streams have
+// completely different level profiles.
+function attachSilenceMeter(ch) {
+  try {
+    const Ctx = window.AudioContext || window.webkitAudioContext;
+    if (!Ctx) return;
+    ch.audioCtx = new Ctx();
+    const src = ch.audioCtx.createMediaStreamSource(ch.stream);
+    ch.analyser = ch.audioCtx.createAnalyser();
+    ch.analyser.fftSize = 1024;
+    src.connect(ch.analyser);
+    // NOTE: do NOT connect the analyser to destination — that would play the
+    // captured audio back out of the speakers, and for the system channel it
+    // would feed the loopback into itself.
+    const buf = new Float32Array(ch.analyser.fftSize);
+    ch.peakRMS = 0;
+    ch.rmsTimer = setInterval(() => {
+      try {
+        ch.analyser.getFloatTimeDomainData(buf);
+        let sum = 0;
+        for (let i = 0; i < buf.length; i++) sum += buf[i] * buf[i];
+        const rms = Math.sqrt(sum / buf.length);
+        if (rms > ch.peakRMS) ch.peakRMS = rms;
+      } catch (_) { /* ignore */ }
+    }, 100);
+  } catch (_) { ch.audioCtx = null; ch.analyser = null; }
+}
+
+// Begin recording an already-opened stream on `ch`.
+function startChannel(ch, stream) {
+  ch.stream = stream;
+  ch.chunkSeq = 0;
+  ch.nextAppendSeq = 0;
+  ch.pending.clear();
+  ch.inFlight = 0;
+  attachSilenceMeter(ch);
+
+  const pick = pickRecorderMime();
+  ch.recorderOpts = pick.mimeType ? { mimeType: pick.mimeType } : {};
+  ch.recorder = new MediaRecorder(ch.stream, ch.recorderOpts);
+  ch.recorder.ondataavailable = (e) => onDataAvailable(ch, e);
+  ch.recorder.start();
+  ch.rotateTimer = setInterval(() => rotateChannel(ch), readChunkSeconds() * 1000);
+  ch.active = true;
+}
+
+function rotateChannel(ch) {
+  if (!ch.active || errored) return;
+  // Snapshot peak RMS for the chunk about to flush, then reset for the new
+  // window. The synchronous ondataavailable reads it back off the recorder.
+  try { ch.recorder._peakRMS = ch.peakRMS; } catch (_) { /* ignore */ }
+  ch.peakRMS = 0;
+  try { ch.recorder.stop(); } catch (e) { /* ignore */ }
+  ch.recorder = new MediaRecorder(ch.stream, ch.recorderOpts);
+  ch.recorder.ondataavailable = (e) => onDataAvailable(ch, e);
+  ch.recorder.start();
+}
+
+function stopChannel(ch) {
+  if (ch.rotateTimer) { clearInterval(ch.rotateTimer); ch.rotateTimer = null; }
+  if (ch.rmsTimer) { clearInterval(ch.rmsTimer); ch.rmsTimer = null; }
+  // Snapshot peak for the trailing chunk so the silence gate can evaluate it.
+  try { if (ch.recorder) ch.recorder._peakRMS = ch.peakRMS; } catch (_) { /* ignore */ }
+  ch.peakRMS = 0;
+  try { ch.recorder && ch.recorder.stop(); } catch (e) { /* ignore */ }
+  if (ch.audioCtx) {
+    try { ch.audioCtx.close(); } catch (_) { /* ignore */ }
+    ch.audioCtx = null;
+    ch.analyser = null;
+  }
+  if (ch.stream) {
+    try { ch.stream.getTracks().forEach(t => t.stop()); } catch (e) { /* ignore */ }
+  }
+  ch.stream = null;
+  ch.recorder = null;
+  ch.active = false;
+}
+
+// Open the microphone — the "You" channel.
+async function startMicChannel() {
   let stream;
   try {
     // Use the system default input (changes correctly when you plug in
-    // headphones). Constraints disable echo/noise/AGC tweaks so Whisper
-    // gets the cleanest possible audio.
+    // headphones). Processing stays on so Whisper gets the cleanest audio.
     stream = await navigator.mediaDevices.getUserMedia({
       audio: {
         echoCancellation: true,
@@ -1331,91 +1445,59 @@ async function startWhisper() {
     });
   } catch (e) {
     reportError('mic-denied', e);
-    return;
+    return false;
   }
-  mediaStream = stream;
-
-  // ── Silence detector — sample RMS at 100ms cadence ───────────────────
-  try {
-    const Ctx = window.AudioContext || window.webkitAudioContext;
-    if (Ctx) {
-      audioCtx = new Ctx();
-      const src = audioCtx.createMediaStreamSource(mediaStream);
-      analyserNode = audioCtx.createAnalyser();
-      analyserNode.fftSize = 1024;
-      src.connect(analyserNode);
-      // NOTE: do NOT connect analyser to destination — would echo mic to speakers.
-      const buf = new Float32Array(analyserNode.fftSize);
-      currentChunkPeakRMS = 0;
-      rmsSampleTimer = setInterval(() => {
-        try {
-          analyserNode.getFloatTimeDomainData(buf);
-          let sum = 0;
-          for (let i = 0; i < buf.length; i++) sum += buf[i] * buf[i];
-          const rms = Math.sqrt(sum / buf.length);
-          if (rms > currentChunkPeakRMS) currentChunkPeakRMS = rms;
-        } catch (_) { /* ignore */ }
-      }, 100);
-    }
-  } catch (_) { audioCtx = null; analyserNode = null; }
-
-  chunkSeq = 0;
-  nextAppendSeq = 0;
-  pendingTranscripts.clear();
-  inFlight = 0;
-  stopped = false;
-  errored = false;
-
-  const pick = pickRecorderMime();
-  recorderOpts = pick.mimeType ? { mimeType: pick.mimeType } : {};
-
-  mediaRecorder = new MediaRecorder(mediaStream, recorderOpts);
-  mediaRecorder.ondataavailable = onDataAvailable;
-  mediaRecorder.start();
-
-  chunkRotateTimer = setInterval(rotateRecorder, readChunkSeconds() * 1000);
-
-  listening = true;
-  updateListenUI();
-  setStatus('listening…', true);
+  startChannel(micChannel, stream);
+  return true;
 }
 
-function rotateRecorder() {
-  if (!listening || errored) return;
-  // Snapshot peak RMS for the chunk that's about to flush, then reset for
-  // the new chunk window. The peak is read inside enqueueChunk via
-  // currentChunkPeakRMS — set on the recorder instance before stop() so the
-  // synchronous ondataavailable can read it.
-  try { mediaRecorder._peakRMS = currentChunkPeakRMS; } catch (_) {}
-  currentChunkPeakRMS = 0;
-  try { mediaRecorder.stop(); } catch (e) { /* ignore */ }
-  mediaRecorder = new MediaRecorder(mediaStream, recorderOpts);
-  mediaRecorder.ondataavailable = onDataAvailable;
-  mediaRecorder.start();
+// Open system-audio loopback — the "Them" channel, tapped before the audio
+// reaches any output device, so it works on headphones and never mixes with
+// your own voice. Failure is non-fatal: the mic channel still runs and the
+// app degrades to its previous single-channel behaviour.
+async function startSystemChannel() {
+  if (!systemAudioEnabled()) return false;
+  let stream;
+  try {
+    // macOS loopback requires a video track in the request even though only
+    // the audio is wanted; main.js answers with audio: 'loopback'.
+    stream = await navigator.mediaDevices.getDisplayMedia({ video: true, audio: true });
+  } catch (e) {
+    setStatus('mic only — system audio unavailable: ' + (e && e.message ? e.message : e), false);
+    return false;
+  }
+  if (!stream.getAudioTracks().length) {
+    try { stream.getTracks().forEach(t => t.stop()); } catch (_) { /* ignore */ }
+    setStatus('mic only — system audio returned no track (grant Screen Recording)', false);
+    return false;
+  }
+  // Drop the video track at once: holding a live screen capture burns CPU and
+  // lights the recording indicator for a stream we never read frames from.
+  stream.getVideoTracks().forEach((t) => {
+    try { t.stop(); } catch (_) { /* ignore */ }
+    try { stream.removeTrack(t); } catch (_) { /* ignore */ }
+  });
+  startChannel(sysChannel, stream);
+  return true;
+}
+
+async function startWhisper() {
+  stopped = false;
+  errored = false;
+  const micOk = await startMicChannel();
+  // Without a mic there is nothing to listen with; reportError already told
+  // the user why.
+  if (!micOk) return;
+  const sysOk = await startSystemChannel();
+  listening = true;
+  updateListenUI();
+  if (sysOk) setStatus('listening — you + them', true);
+  else setStatus('listening…', true);
 }
 
 function stopWhisper() {
   stopped = true;
-  if (chunkRotateTimer) {
-    clearInterval(chunkRotateTimer);
-    chunkRotateTimer = null;
-  }
-  if (rmsSampleTimer) {
-    clearInterval(rmsSampleTimer);
-    rmsSampleTimer = null;
-  }
-  // Snapshot peak for the trailing chunk so the silence gate can evaluate it.
-  try { if (mediaRecorder) mediaRecorder._peakRMS = currentChunkPeakRMS; } catch (_) {}
-  currentChunkPeakRMS = 0;
-  try { mediaRecorder && mediaRecorder.stop(); } catch (e) { /* ignore */ }
-  if (audioCtx) {
-    try { audioCtx.close(); } catch (_) { /* ignore */ }
-    audioCtx = null;
-    analyserNode = null;
-  }
-  if (mediaStream) {
-    try { mediaStream.getTracks().forEach(t => t.stop()); } catch (e) { /* ignore */ }
-  }
+  captureChannels.forEach(stopChannel);
   listening = false;
   updateListenUI();
   updateStatusLine();
@@ -1439,24 +1521,24 @@ function filterHallucinations(text) {
   return text;
 }
 
-function enqueueChunk(blob, peakRMS) {
+function enqueueChunk(ch, blob, peakRMS) {
   if (!blob || blob.size === 0) return;
   // Drop near-silent chunks before they reach Whisper — prevents
   // hallucinated transcripts ("Thank you", "E aí", "Tchau", etc.) on
   // pauses or background-noise-only audio.
-  const peak = (typeof peakRMS === 'number') ? peakRMS : currentChunkPeakRMS;
+  const peak = (typeof peakRMS === 'number') ? peakRMS : ch.peakRMS;
   const threshold = readSilenceThreshold();
   if (peak < threshold) {
-    // Skip silently — do NOT increment chunkSeq, do NOT post.
+    // Skip silently — do NOT increment the channel's seq, do NOT post.
     return;
   }
-  const seq = chunkSeq++;
-  inFlight += 1;
+  const seq = ch.chunkSeq++;
+  ch.inFlight += 1;
   updateStatusLine();
-  postChunk(seq, blob);
+  postChunk(ch, seq, blob);
 }
 
-async function postChunk(seq, blob) {
+async function postChunk(ch, seq, blob) {
   const form = new FormData();
   const ext = extFromMime(blob.type);
   form.append('file', blob, 'chunk-' + seq + '.' + ext);
@@ -1471,14 +1553,14 @@ async function postChunk(seq, blob) {
       body: form,
     });
   } catch (e) {
-    inFlight = Math.max(0, inFlight - 1);
+    ch.inFlight = Math.max(0, ch.inFlight - 1);
     updateStatusLine();
     if (!errored) reportError('fetch-network-error', e);
     return;
   }
 
   if (!res.ok) {
-    inFlight = Math.max(0, inFlight - 1);
+    ch.inFlight = Math.max(0, ch.inFlight - 1);
     updateStatusLine();
     if (errored) return;
     let bodyText = '';
@@ -1491,14 +1573,14 @@ async function postChunk(seq, blob) {
   try {
     parsed = await res.json();
   } catch (e) {
-    inFlight = Math.max(0, inFlight - 1);
+    ch.inFlight = Math.max(0, ch.inFlight - 1);
     updateStatusLine();
     if (!errored) reportError('malformed-json', e);
     return;
   }
 
   if (parsed == null || typeof parsed !== 'object' || typeof parsed.text !== 'string') {
-    inFlight = Math.max(0, inFlight - 1);
+    ch.inFlight = Math.max(0, ch.inFlight - 1);
     updateStatusLine();
     if (!errored) reportError('malformed-json', { reason: 'no-text-field' });
     return;
@@ -1506,23 +1588,39 @@ async function postChunk(seq, blob) {
 
   if (!errored) {
     const cleaned = filterHallucinations(String(parsed.text).trim());
-    pendingTranscripts.set(seq, { ok: true, text: cleaned });
-    drainAppendQueue();
+    ch.pending.set(seq, { ok: true, text: cleaned });
+    drainAppendQueue(ch);
   }
-  inFlight = Math.max(0, inFlight - 1);
+  ch.inFlight = Math.max(0, ch.inFlight - 1);
   updateStatusLine();
 }
 
-function drainAppendQueue() {
-  while (pendingTranscripts.has(nextAppendSeq)) {
-    const entry = pendingTranscripts.get(nextAppendSeq);
-    pendingTranscripts.delete(nextAppendSeq);
-    nextAppendSeq += 1;
+// Chunks are posted concurrently and can resolve out of order, so each
+// channel releases its own transcripts strictly in sequence. Ordering is only
+// meaningful within a channel — "you" and "them" are separate streams whose
+// chunks are interleaved by arrival time, which is what a conversation is.
+function drainAppendQueue(ch) {
+  while (ch.pending.has(ch.nextAppendSeq)) {
+    const entry = ch.pending.get(ch.nextAppendSeq);
+    ch.pending.delete(ch.nextAppendSeq);
+    ch.nextAppendSeq += 1;
     if (entry.ok && entry.text) {
-      finalTranscript += (finalTranscript ? ' ' : '') + entry.text;
+      appendTranscriptEntry(ch, entry.text);
       renderTranscript();
     }
   }
+}
+
+// Record one attributed utterance and keep `finalTranscript` in sync as the
+// plain concatenation, so the Use / Append / Clear controls keep working on
+// exactly the string they always have.
+function appendTranscriptEntry(ch, text) {
+  const last = transcriptEntries[transcriptEntries.length - 1];
+  // Merge consecutive utterances from the same speaker into one entry so the
+  // transcript reads as turns rather than as one row per audio chunk.
+  if (last && last.channel === ch.name) last.text += ' ' + text;
+  else transcriptEntries.push({ channel: ch.name, label: ch.label, text });
+  finalTranscript += (finalTranscript ? ' ' : '') + text;
 }
 
 // ─────────────────────────────────────────────────────────────────────────────
@@ -1566,7 +1664,9 @@ function reportError(kind, detail) {
 function updateStatusLine() {
   if (errored) return;
   if (listening) {
+    const inFlight = captureChannels.reduce((n, ch) => n + ch.inFlight, 0);
     if (inFlight > 0) setStatus('transcribing…', true);
+    else if (sysChannel.active) setStatus('listening — you + them', true);
     else setStatus('listening…', true);
   } else {
     setStatus('listening stopped', false);
@@ -1589,12 +1689,29 @@ transcriptAppend.addEventListener('click', () => {
   input.focus();
 });
 transcriptClear.addEventListener('click', () => {
+  transcriptEntries = [];
   finalTranscript = ''; interimTranscript = ''; renderTranscript();
 });
 
 function renderTranscript() {
   transcriptText.innerHTML = '';
-  if (finalTranscript) {
+  if (transcriptEntries.length) {
+    // Speaker-attributed view: one row per turn, tagged You or Them.
+    for (const entry of transcriptEntries) {
+      const row = document.createElement('div');
+      row.className = 'ts-turn ts-' + entry.channel;
+      const who = document.createElement('span');
+      who.className = 'ts-who';
+      who.textContent = entry.label;
+      const said = document.createElement('span');
+      said.className = 'ts-said';
+      said.textContent = entry.text;
+      row.appendChild(who);
+      row.appendChild(said);
+      transcriptText.appendChild(row);
+    }
+  } else if (finalTranscript) {
+    // Unattributed fallback — e.g. transcript restored without channel data.
     const f = document.createElement('span');
     f.textContent = finalTranscript;
     transcriptText.appendChild(f);
@@ -1630,6 +1747,24 @@ function updateListenUI() {
     earEl.textContent = '🎤 off';
   }
 }
+// System-audio opt-out. Takes effect on the next Listen — a running capture is
+// left alone rather than torn down mid-sentence.
+function renderSysAudioToggle() {
+  if (!sysAudioToggle) return;
+  const on = systemAudioEnabled();
+  sysAudioToggle.textContent = on ? 'On' : 'Off';
+  sysAudioToggle.classList.toggle('active', on);
+}
+if (sysAudioToggle) {
+  sysAudioToggle.addEventListener('click', () => {
+    const next = systemAudioEnabled() ? '0' : '1';
+    try { localStorage.setItem(LS_SYS_AUDIO, next); } catch (_) { /* ignore */ }
+    renderSysAudioToggle();
+    if (listening) setStatus('system audio change applies next time you Listen', true);
+  });
+  renderSysAudioToggle();
+}
+
 async function toggleListen() {
   if (listening) {
     stopWhisper();
