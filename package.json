@@ -27,6 +27,7 @@
     "files": [
       "main.js",
       "preload.js",
+      "audio-probe.js",
       "renderer/**/*",
       "package.json"
     ],

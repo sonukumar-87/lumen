@@ -186,7 +186,16 @@ function registerHotkeys() {
   if (failed.length) console.warn('[lumen] could not register:', failed.join(', '));
 }
 
+// `--audio-probe` runs the loopback diagnostic instead of the app, so the
+// capture path can be measured under Lumen's own permission identity rather
+// than inferred from an empty transcript.
+const AUDIO_PROBE = process.argv.includes('--audio-probe');
+
 app.whenReady().then(() => {
+  if (AUDIO_PROBE) {
+    require('./audio-probe').runProbe(app);
+    return;
+  }
   // Serve `lumen://app/<path>` from `renderer/<path>` so the renderer document
   // has a real, secure origin. `app` is the only allowed host; `..` segments
   // are rejected to prevent path traversal outside `renderer/`.
