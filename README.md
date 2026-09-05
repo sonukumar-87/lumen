@@ -7,6 +7,83 @@ Inspired by Cluely. Plain Electron + HTML/JS — no React, no build pipeline.
 
 ---
 
+## What's new in v0.9.0
+
+### Hears both sides of a conversation
+
+Capture now runs on **two independent channels**, and the transcript labels
+who said what:
+
+| Channel | Source | Label |
+|---|---|---|
+| Microphone | `getUserMedia` | **You** |
+| System audio | `getDisplayMedia` loopback | **Them** |
+
+A microphone alone cannot separate the two: on speakers it picks up the other
+participant bleeding out of them mixed with your own voice, and on headphones
+it cannot hear them at all. System audio is tapped before it reaches any
+output device, so each channel stays clean.
+
+> **macOS requires Screen Recording permission for this** — loopback runs
+> through ScreenCaptureKit, which that permission gates. The microphone
+> permission does not cover it. Without it the Them channel stays silent.
+> Enable Lumen under System Settings → Privacy & Security → Screen Recording,
+> then quit and reopen.
+
+### No more clearing the transcript
+
+Taking text advances a cursor instead of emptying the log, so the same words
+are never picked up twice. Their speech also **auto-fills the composer** as
+they talk, and clears itself when you start answering — the question is stale
+once you are replying to it. Prompts draw from the **Them** channel only:
+mixing both sides made the model answer the wrong half of the conversation.
+
+### Transcription accuracy and latency
+
+- **End-of-turn flushing** — a chunk is sent when speech stops rather than
+  when a 5-second timer expires. Most of the old delay was spent watching a
+  clock, and cutting on the gap between turns keeps whole utterances together,
+  which transcribes better than slicing mid-sentence.
+- **Adaptive silence gate** — the threshold follows each device's own noise
+  floor. A fixed value tuned on a built-in mic discarded every word from a
+  Bluetooth headset, whose level is ~20× quieter.
+- **Input device picker** — pin a microphone so connecting headphones cannot
+  move capture onto a headset mic that produces nothing.
+
+### Keyboard control
+
+| Shortcut | Action |
+|---|---|
+| `⌘⇧M` | Start / stop listening |
+| `⌘⇧U` | Put their latest speech in the input |
+| `⌘⇧⏎` | Ask about their latest speech immediately |
+| `⌘⇧K` | Clear the transcript |
+| `⌘⇧H` | Collapse / expand the panel |
+
+### Overlay redesign
+
+Floating pill above a single centred glass panel on a transparent,
+click-through page — the window is sized to the drawn UI so no invisible
+rectangle sits over the screen, and gaps forward clicks to whatever is behind.
+
+### Diagnostics
+
+`--audio-probe` runs the capture path and writes a staged report to
+`~/lumen-audio-probe.json`: permission status, device list, track state, real
+RMS, and whether MediaRecorder produces bytes. Every failure mode here is
+invisible from the transcript — a missing permission still yields a live track
+carrying pure silence — so it is measured rather than inferred.
+
+```sh
+open -a /Applications/Lumen.app --args --audio-probe
+sleep 50 && cat ~/lumen-audio-probe.json
+```
+
+Also: **Electron 33.2.1**, GPT-OSS 120B/20B in the Groq picker, and 56 tests
+(up from 25).
+
+---
+
 ## What's new in v0.8.0
 
 - **Major visual redesign**: Complete UI overhaul with glassmorphism aesthetic
@@ -129,6 +206,11 @@ gh release create v0.7.0 dist/Lumen-0.7.0-arm64.dmg dist/Lumen-0.7.0.dmg \
 | `⌘⇧T` | Click-through mode |
 | `⌘⇧O` | Cycle opacity (100 → 70 → 40) |
 | `⌘⇧↑↓←→` | Move window |
+| `⌘⇧M` | Start / stop listening |
+| `⌘⇧U` | Put their latest speech in the input |
+| `⌘⇧⏎` | Ask about their latest speech immediately |
+| `⌘⇧K` | Clear the transcript |
+| `⌘⇧H` | Collapse / expand the panel |
 | `⌘⏎` | Send message |
 | `⌘K` | Clear chat |
 | `⌘+` / `⌘-` | Increase / decrease chat font size |
@@ -154,8 +236,12 @@ All preferences are stored locally inside Electron's per-app `userData`.
 | `lumen.coffeeUrl` | Override Buy-Me-a-Coffee URL |
 | `lumen.whisper.endpoint` | Override Whisper transcription endpoint |
 | `lumen.whisper.model` | Override Whisper model |
-| `lumen.whisper.chunkSeconds` | Chunk duration in seconds (1–30) |
-| `lumen.whisper.silenceRms` | RMS silence threshold (0–1, default 0.018) |
+| `lumen.whisper.chunkSeconds` | Maximum chunk duration in seconds (1–30). A chunk is normally flushed earlier, when speech stops. |
+| `lumen.whisper.silenceRms` | Upper bound on the silence threshold (0–1, default 0.018). The gate adapts below this to each device's own noise floor, so a quiet Bluetooth mic is not gated out. |
+| `lumen.capture.systemAudio` | `0` disables the Them channel (system audio) |
+| `lumen.capture.micDeviceId` | Pinned input device; empty follows the system default |
+| `lumen.capture.autoFill` | `0` stops their speech auto-filling the composer |
+| `lumen.panelCollapsed` | `1` if the panel was collapsed when last closed |
 
 Edit any of these in DevTools console while the app is running.
 
@@ -167,20 +253,28 @@ Edit any of these in DevTools console while the app is running.
 lumen/
 ├── main.js                 # Electron main process
 ├── preload.js              # IPC bridge (window.lumen.*)
+├── audio-probe.js          # --audio-probe capture diagnostic
 ├── renderer/
 │   ├── index.html          # all UI markup + CSS
 │   ├── renderer.js         # all renderer logic
-│   └── avatar.png          # bottom-left avatar
+│   ├── probe.html          # page the audio probe runs
+│   └── avatar.png          # avatar shown in Settings
 ├── tests/
-│   ├── whisperHarness.js   # Whisper pipeline harness
-│   ├── whisperPbt.test.js  # property-based tests
-│   ├── whisperUnits.test.js# unit tests
-│   └── opacityHarness.js   # opacity controller harness
+│   ├── whisperHarness.js       # Whisper pipeline harness
+│   ├── whisperPbt.test.js      # property-based tests
+│   ├── whisperUnits.test.js    # unit tests
+│   ├── captureChannels.test.js # two-channel capture + window behaviour
+│   └── opacityHarness.js       # opacity controller harness
 ├── build/                  # icon + entitlements
 ├── README.md               # this file
 ├── AI-HANDOFF.md           # paste-and-go context for AI assistants
 └── package.json
 ```
+
+`renderer.js` cannot be imported by tests — it is a browser script with DOM and
+Electron dependencies — so several tests read it as source and execute
+individual functions extracted from it. That is why some assertions look
+structural; see the comments in `captureChannels.test.js`.
 
 ---
 

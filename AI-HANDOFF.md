@@ -155,11 +155,64 @@ MIN_CLEAN_SESSION_MS = 1000
 
 ### Whisper pipeline
 
-Audio captured via `MediaRecorder`, rotated every N seconds (default 5) using
-the stop-and-recreate strategy (NOT `start(timeslice)` — mid-stream WebM
-fragments are not decodable). Each chunk POSTs to Whisper endpoint with Groq key.
-RMS silence detection (`analyserNode`) skips chunks below threshold (default 0.018)
-to suppress hallucinations on silent audio.
+Audio captured via `MediaRecorder`, rotated using the stop-and-recreate
+strategy (NOT `start(timeslice)` — mid-stream WebM fragments are not
+decodable). Each chunk POSTs to the Whisper endpoint with the Groq key.
+
+### Two capture channels (v0.9)
+
+Capture runs on two independent channels, `micChannel` ("you", `getUserMedia`)
+and `sysChannel` ("them", `getDisplayMedia` loopback). Each owns its own
+recorder, chunk sequence, ordering queue and silence meter — **sharing any of
+those interleaves the two streams and scrambles both transcripts**.
+
+Things that are load-bearing and easy to break:
+
+- **`startSystemChannel` runs BEFORE `startMicChannel`.** `getDisplayMedia`
+  needs a live user gesture; awaiting `getUserMedia` first spends it and the
+  loopback request is then rejected.
+- **The loopback video track is never stopped.** Stopping it ends the capture
+  session on macOS and the audio dies with it — the recorder then yields empty
+  blobs forever. Recording runs off `new MediaStream(audioTracks)` while the
+  original capture stays open; `ch.captureStream` holds it for teardown.
+- **macOS needs `MacLoopbackAudioForScreenShare` and
+  `MacSckSystemAudioLoopbackOverride`** appended before `app.ready`, and the
+  display-media handler must grant `audio: 'loopback'`.
+- **Screen Recording permission gates all of this.** Denied,
+  `getDisplayMedia` fails with "Error starting capture"; in other states it can
+  return a live track carrying pure silence, indistinguishable from nobody
+  speaking. Do not gate capture on `getMediaAccessStatus('screen')` — it
+  reports stale `denied` for unsigned builds. Attempt the capture instead, and
+  verify permission via the thumbnail-pixel check in `lumen:check-screen-perm`.
+
+### Silence gate — adaptive, and fails open
+
+Device levels differ by more than an order of magnitude: a built-in mic peaks
+around 0.04 where a Bluetooth headset mic reads 0.000874 for the same speech.
+A fixed threshold silently discarded every word from the quiet one.
+
+- The floor follows `ch.noiseFloor` (×3), bounded below by `ABSOLUTE_FLOOR`
+  and above by the configured value.
+- A chunk also needs ≥8% of its window voiced, so a click or breath cannot
+  clear the gate — near-silent audio is what makes Whisper invent phrases.
+- **The gate only applies once `ch.meterOk` is true.** If the meter never
+  produced a reading, its peak is stuck at 0 and gating on it would discard
+  the entire session. Failing open costs a few wasted requests; failing closed
+  costs everything.
+
+### End-of-turn flushing
+
+The meter flushes a chunk when speech stops (700ms quiet, ≥1.2s audio, ≥400ms
+voiced) rather than when the interval expires. The interval is a **maximum**,
+restarted on every flush — left running it fires just after an early flush and
+emits a fragment of the next utterance.
+
+### Transcript state
+
+`transcriptEntries` holds attributed turns; `finalTranscript` remains the plain
+concatenation so the Use/Append/Clear controls keep working. `transcriptCursor`
+advances when text is taken, so nothing is picked up twice and the transcript
+never needs clearing. Prompts default to the **them** channel only.
 
 ---
 
@@ -191,20 +244,33 @@ Continuous screen share still uses `getDisplayMedia` (live stream, different cod
 
 ---
 
-## Current visual design (v0.8)
+## Current visual design (v0.9)
 
-The UI uses a **glassmorphism** aesthetic with:
-- **Color palette**: Purple/violet (#8b5cf6) + cyan (#22d3ee) accents on a near-black base (#09090f)
-- **Animated gradient orbs**: Floating radial gradients that slowly animate behind all content
-- **Glass panels**: Sidebar, header, rightbar, status bar use `backdrop-filter:blur(20px)` with semi-transparent backgrounds
-- **Animated gradient heading**: The greeting text shimmers with a moving gradient (purple → cyan)
-- **Floating input bar**: Command bar is a glass pill with purple glow border, no hard attachment to edges
-- **Large UI elements**: 14px base font, 38px avatars, generous padding/whitespace
-- **Card hover effects**: Elements lift with translateY + scale + purple glow shadows on hover
-- **Rounded corners**: 10–24px radius throughout (no sharp corners anywhere)
-- **Gradient brand mark**: Purple → cyan rounded square logo
-- **Glowing status indicators**: Double-layered box-shadow glows on all status dots
-- **Staggered entrance animations**: Suggestion cards and messages animate in with cubic-bezier timing
+An **overlay**, not a window: a floating pill above a single centred glass
+panel on a transparent, click-through page. The three-column dashboard
+(sidebar / main / rightbar) is gone — the sidebar became the horizontal tab
+strip at the head of the panel, and the rightbar's sections moved into the
+panes they belong to (Screen Mode → Ask-from-Screen, Recent → History).
+
+Palette is unchanged: violet (#8b5cf6) + cyan (#22d3ee) on near-black
+(#09090f), glass surfaces, 10–24px radii.
+
+Structural rules that are load-bearing:
+
+- **The window is sized by the user; the content fills it.** Do NOT resize the
+  window to fit content — that overrides every manual resize (dragging an edge
+  springs back) and caps the chat log. `fitWindowToContent` is only for
+  collapse/expand.
+- **Never cap `.panel-wrap` in `vh`.** The window height derives from the
+  panel, so a viewport-relative cap is circular: collapsed, the window is
+  ~40px tall and the cap computes to zero, so expanding can never grow back.
+- **`pointer-events: none` does not make gaps click-through.** The OS window
+  still swallows the click; `setIgnoreMouseEvents(.., {forward: true})` is what
+  forwards it, driven from the renderer's pointer sampling.
+- Depth comes from the hairline border and inset top highlight. Outer drop
+  shadows are avoided because the window clips to the drawn bounds.
+- One `--t-fast` (140ms) transition token; hover lift is deliberately absent on
+  dense controls, where it makes neighbours look misaligned.
 
 ---
 
@@ -231,6 +297,11 @@ All tests must pass. Never delete a test to make it pass.
 | `⌘⇧T` | Click-through mode |
 | `⌘⇧O` | Cycle opacity |
 | `⌘⇧↑↓←→` | Move window |
+| `⌘⇧M` | Start / stop listening |
+| `⌘⇧U` | Put their latest speech in the input |
+| `⌘⇧⏎` | Ask about their latest speech immediately |
+| `⌘⇧K` | Clear the transcript |
+| `⌘⇧H` | Collapse / expand the panel |
 | `⌘⏎` | Send |
 | `⌘K` | Clear chat |
 | `⌘+` / `⌘-` | Chat font size |
