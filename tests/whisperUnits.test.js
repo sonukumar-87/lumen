@@ -264,22 +264,30 @@ describe('10.5 — prompt-injection helpers unchanged', () => {
   // renderer DOM event handlers). This test reads the renderer.js source
   // and asserts that the three handler bodies still match the expected
   // pattern — a structural rather than behavioral check.
-  it('5.3: renderer.js still wires Use/Append/Clear handlers operating on finalTranscript + interimTranscript', () => {
+  // UPDATED: this test used to pin the handler bodies to the exact expression
+  // `(finalTranscript + interimTranscript).trim()`. That shape is what forced
+  // the transcript to be cleared by hand between questions, and it mixed both
+  // speakers into the prompt, so the model answered the wrong half of the
+  // conversation. The handlers now read through a cursor and default to the
+  // "them" channel. The intent of the check is unchanged — Use, Append and
+  // Clear must stay wired and must operate on the transcript state — so it is
+  // asserted against the current contract rather than the old expression.
+  it('5.3: renderer.js still wires Use/Append/Clear handlers over the transcript state', () => {
     const src = readFileSync(RENDERER_PATH, 'utf8');
 
-    // Use: input.value = (finalTranscript + interimTranscript).trim()
     expect(src).toMatch(/transcriptUse\.addEventListener\(\s*'click'/);
-    expect(src).toMatch(/input\.value\s*=\s*\(finalTranscript\s*\+\s*interimTranscript\)\.trim\(\)/);
-
-    // Append: const t = (finalTranscript + interimTranscript).trim();
-    //         input.value = (input.value ? input.value + '\n\n' : '') + t;
     expect(src).toMatch(/transcriptAppend\.addEventListener\(\s*'click'/);
-    expect(src).toMatch(/const\s+t\s*=\s*\(finalTranscript\s*\+\s*interimTranscript\)\.trim\(\)/);
+    expect(src).toMatch(/transcriptClear\.addEventListener\(\s*'click'/);
+
+    // Use and Append both draw from the cursor-advancing reader, so the same
+    // words are never taken twice and no manual clear is needed.
+    expect(src).toMatch(/function takeLatest\(\)/);
+    expect(src).toMatch(/input\.value\s*=\s*t;/);
     expect(src).toMatch(/input\.value\s*=\s*\(input\.value\s*\?\s*input\.value\s*\+\s*'\\n\\n'\s*:\s*''\)\s*\+\s*t/);
 
-    // Clear: finalTranscript = ''; interimTranscript = ''; renderTranscript()
-    expect(src).toMatch(/transcriptClear\.addEventListener\(\s*'click'/);
+    // Clear still resets both strings, and now the cursor and entries too.
     expect(src).toMatch(/finalTranscript\s*=\s*'';\s*interimTranscript\s*=\s*'';\s*renderTranscript\(\)/);
+    expect(src).toMatch(/transcriptCursor\s*=\s*0;/);
   });
 });
 

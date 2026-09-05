@@ -41,4 +41,5 @@ contextBridge.exposeInMainWorld('lumen', {
   onFocusInput:         (cb) => ipcRenderer.on('focus-input',  ()      => cb()),
   onClickThroughChange: (cb) => ipcRenderer.on('click-through', (_, v) => cb(v)),
   onOpacityCycle:       (cb) => ipcRenderer.on('opacity-cycle', ()     => cb()),
+  onTranscriptAction:   (cb) => ipcRenderer.on('transcript-action', (_, a) => cb(a)),
 });

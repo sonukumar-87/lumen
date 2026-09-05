@@ -194,7 +194,10 @@ describe('silence gate', () => {
     // that the room is quiet. Gating on it would discard every chunk for the
     // whole session — silent, total data loss.
     const body = extractFunction(rendererSrc, 'enqueueChunk');
-    expect(body).toMatch(/ch\.meterOk\s*&&\s*peak\s*<\s*threshold/);
+    // Every drop condition stays behind meterOk, so a broken meter cannot
+    // discard the whole session.
+    expect(body).toMatch(/ch\.meterOk\s*&&\s*\(/);
+    expect(body).toMatch(/peak\s*<\s*threshold/);
   });
 
   it('only trusts the meter once a non-zero sample is seen', () => {

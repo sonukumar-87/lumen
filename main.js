@@ -178,6 +178,13 @@ function registerHotkeys() {
     'CommandOrControl+Shift+Left':  () => moveWindow(-40, 0),
     'CommandOrControl+Shift+Right': () => moveWindow(40, 0),
     'CommandOrControl+Shift+O': () => { if (win) win.webContents.send('opacity-cycle'); },
+    // Transcript control without touching the mouse. Registered globally so
+    // they work while another window has focus — moving the pointer over to
+    // the overlay is itself visible on a shared screen.
+    'CommandOrControl+Shift+U': () => { if (win) win.webContents.send('transcript-action', 'use'); },
+    'CommandOrControl+Shift+Return': () => { if (win) win.webContents.send('transcript-action', 'send'); },
+    'CommandOrControl+Shift+K': () => { if (win) win.webContents.send('transcript-action', 'clear'); },
+    'CommandOrControl+Shift+M': () => { if (win) win.webContents.send('transcript-action', 'listen'); },
   };
   const failed = [];
   for (const [k, fn] of Object.entries(bindings)) {

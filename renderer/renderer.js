@@ -92,6 +92,7 @@ const L = window.lumen || {
   setOpacity() {}, setIgnoreMouse() {}, fitWindow() {},
   captureScreen() { return Promise.resolve({ ok: false, error: 'browser' }); },
   onFocusInput() {}, onClickThroughChange() {}, onOpacityCycle() {},
+  onTranscriptAction() {},
 };
 
 // New layout needs more room — request resize via IPC if available, otherwise
@@ -270,6 +271,10 @@ function createCaptureChannel(name, label) {
     // Quietest level this device produces, used as the reference for the
     // adaptive silence gate.
     noiseFloor: 0,
+    // Voiced-duration counters for the chunk window in progress.
+    windowSamples: 0,
+    voicedSamples: 0,
+    lastVoicedRatio: 1,
     // Set once the meter observes a non-zero sample. Until then the silence
     // gate stays open rather than trusting a reading of 0.
     meterOk: false,
@@ -1425,6 +1430,13 @@ function attachSilenceMeter(ch) {
             ? Math.min(ch.noiseFloor * 1.0005, rms < ch.noiseFloor ? rms : ch.noiseFloor)
             : rms;
         }
+        // How much of the window actually carried sound. A peak alone is not
+        // enough: a single click or breath clears the floor while the chunk is
+        // otherwise silent, and near-silent audio is precisely what makes
+        // Whisper invent text. Lowering the floor for quiet microphones let
+        // those chunks back in, so voiced duration is now required too.
+        ch.windowSamples += 1;
+        if (rms > channelSilenceFloor(ch)) ch.voicedSamples += 1;
       } catch (_) { /* ignore */ }
     }, 100);
   } catch (_) { ch.audioCtx = null; ch.analyser = null; }
@@ -1441,6 +1453,9 @@ function startChannel(ch, stream) {
   ch.dropped = 0;
   ch.meterOk = false;
   ch.noiseFloor = 0;
+  ch.windowSamples = 0;
+  ch.voicedSamples = 0;
+  ch.lastVoicedRatio = 1;
   attachSilenceMeter(ch);
 
   const pick = pickRecorderMime();
@@ -1457,7 +1472,9 @@ function rotateChannel(ch) {
   // Snapshot peak RMS for the chunk about to flush, then reset for the new
   // window. The synchronous ondataavailable reads it back off the recorder.
   try { ch.recorder._peakRMS = ch.peakRMS; } catch (_) { /* ignore */ }
+  ch.lastVoicedRatio = ch.windowSamples ? ch.voicedSamples / ch.windowSamples : 1;
   ch.peakRMS = 0;
+  ch.windowSamples = 0; ch.voicedSamples = 0;
   try { ch.recorder.stop(); } catch (e) { /* ignore */ }
   ch.recorder = new MediaRecorder(ch.stream, ch.recorderOpts);
   ch.recorder.ondataavailable = (e) => onDataAvailable(ch, e);
@@ -1469,7 +1486,9 @@ function stopChannel(ch) {
   if (ch.rmsTimer) { clearInterval(ch.rmsTimer); ch.rmsTimer = null; }
   // Snapshot peak for the trailing chunk so the silence gate can evaluate it.
   try { if (ch.recorder) ch.recorder._peakRMS = ch.peakRMS; } catch (_) { /* ignore */ }
+  ch.lastVoicedRatio = ch.windowSamples ? ch.voicedSamples / ch.windowSamples : 1;
   ch.peakRMS = 0;
+  ch.windowSamples = 0; ch.voicedSamples = 0;
   try { ch.recorder && ch.recorder.stop(); } catch (e) { /* ignore */ }
   if (ch.audioCtx) {
     try { ch.audioCtx.close(); } catch (_) { /* ignore */ }
@@ -1741,7 +1760,12 @@ function enqueueChunk(ch, blob, peakRMS) {
   // silent data loss. Wasting a few Whisper calls is the cheaper failure.
   const peak = (typeof peakRMS === 'number') ? peakRMS : ch.peakRMS;
   const threshold = channelSilenceFloor(ch);
-  if (ch.meterOk && peak < threshold) {
+  // At least 8% of the window must have carried sound. A peak alone is not
+  // enough: one click or breath clears the floor while the chunk is otherwise
+  // silent, and Whisper answers such audio with invented phrases rather than
+  // nothing. Lowering the floor for quiet mics let those chunks back in.
+  const VOICED_MIN = 0.08;
+  if (ch.meterOk && (peak < threshold || ch.lastVoicedRatio < VOICED_MIN)) {
     ch.dropped += 1;
     // Skip silently — do NOT increment the channel's seq, do NOT post.
     return;
@@ -1891,21 +1915,74 @@ function updateStatusLine() {
 // ─────────────────────────────────────────────────────────────────────────────
 // MIC LISTENING
 // ─────────────────────────────────────────────────────────────────────────────
+// ── Rolling transcript → prompt ─────────────────────────────────────────────
+// Everything below exists to remove the Clear step. The transcript is a
+// rolling log; taking text from it advances a cursor rather than emptying it,
+// so the same words are never picked up twice and nothing has to be reset by
+// hand between questions.
+//
+// Only the "them" channel is offered by default: mixing your own answers into
+// the prompt is what made the model reply to the wrong half of the
+// conversation. Your side stays visible in the transcript for context.
+let transcriptCursor = 0;
+function unusedText(channel) {
+  const fresh = transcriptEntries.slice(transcriptCursor);
+  const picked = channel ? fresh.filter((e) => e.channel === channel) : fresh;
+  return picked.map((e) => e.text).join(' ').trim();
+}
+function consumeTranscript(channel) {
+  const text = unusedText(channel);
+  transcriptCursor = transcriptEntries.length;
+  return text;
+}
+// Falls back to the whole rolling text when nothing is attributed yet — e.g.
+// the system channel never opened, so every entry is "you".
+function takeLatest() {
+  const them = consumeTranscript('them');
+  if (them) return them;
+  return (finalTranscript + interimTranscript).trim();
+}
+
 transcriptUse.addEventListener('click', () => {
-  input.value = (finalTranscript + interimTranscript).trim();
+  const t = takeLatest();
+  if (!t) return;
+  input.value = t;
   showPane('chat');
   input.focus();
+  autoResizeInput();
 });
 transcriptAppend.addEventListener('click', () => {
-  const t = (finalTranscript + interimTranscript).trim();
+  const t = takeLatest();
   if (!t) return;
   input.value = (input.value ? input.value + '\n\n' : '') + t;
   showPane('chat');
   input.focus();
+  autoResizeInput();
 });
 transcriptClear.addEventListener('click', () => {
+  transcriptCursor = 0;
   transcriptEntries = [];
   finalTranscript = ''; interimTranscript = ''; renderTranscript();
+});
+
+// Keyboard equivalents for the transcript controls, driven by the global
+// shortcuts registered in main.js so they fire without focusing the overlay.
+L.onTranscriptAction((action) => {
+  if (action === 'listen') { toggleListen(); return; }
+  if (action === 'clear') {
+    transcriptCursor = 0;
+    transcriptEntries = [];
+    finalTranscript = ''; interimTranscript = ''; renderTranscript();
+    return;
+  }
+  const t = takeLatest();
+  if (!t) { setStatus('nothing new in the transcript', false); return; }
+  input.value = t;
+  showPane('chat');
+  autoResizeInput();
+  // 'use' stages it for editing; 'send' asks straight away.
+  if (action === 'send') ask();
+  else input.focus();
 });
 
 function renderTranscript() {
