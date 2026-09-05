@@ -339,6 +339,8 @@ const VISION_HINTS = {
 // ── Known model catalogues ────────────────────────────────────────────────────
 const MODEL_CATALOGUE = {
   groq: [
+    { id: 'openai/gpt-oss-120b',                           label: 'GPT-OSS 120B (strongest)' },
+    { id: 'openai/gpt-oss-20b',                            label: 'GPT-OSS 20B (fast)' },
     { id: 'llama-3.3-70b-versatile',                       label: 'Llama 3.3 70B Versatile (default)' },
     { id: 'llama-3.1-8b-instant',                          label: 'Llama 3.1 8B Instant (fast)' },
     { id: 'meta-llama/llama-4-scout-17b-16e-instruct',     label: 'Llama 4 Scout 17B (vision)' },
