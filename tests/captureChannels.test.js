@@ -222,6 +222,35 @@ describe('silence gate', () => {
   });
 });
 
+describe('device and permission recovery', () => {
+  it('checks Screen Recording before opening the loopback', () => {
+    // Denied, getDisplayMedia still resolves with a track that only carries
+    // silence — indistinguishable from the other person saying nothing.
+    const body = extractFunction(rendererSrc, 'startSystemChannel');
+    expect(body).toMatch(/checkScreenPerm/);
+    expect(body).toMatch(/!==\s*'granted'/);
+  });
+
+  it('reopens the mic when the input device changes', () => {
+    // Plugging in headphones ends the track bound to the old default input.
+    const body = extractFunction(rendererSrc, 'startMicChannel');
+    expect(body).toMatch(/addEventListener\('ended'/);
+    expect(body).toMatch(/startMicChannel\(\)/);
+  });
+
+  it('shrinks the window when the panel collapses', () => {
+    // Hiding the panel alone leaves a full-size transparent rectangle.
+    expect(extractFunction(rendererSrc, 'setCollapsed')).toMatch(/L\.setCollapsed/);
+    expect(mainSrc).toMatch(/lumen:set-collapsed/);
+    expect(mainSrc).toMatch(/expandedBounds/);
+  });
+
+  it('forwards mouse events over transparent gaps', () => {
+    // CSS pointer-events does not stop the OS window swallowing the click.
+    expect(mainSrc).toMatch(/setIgnoreMouseEvents\([\s\S]{0,60}forward:\s*true/);
+  });
+});
+
 describe('main process enablement', () => {
   it('enables the Chromium features macOS loopback needs, before app ready', () => {
     expect(mainSrc).toMatch(/MacLoopbackAudioForScreenShare/);

@@ -224,6 +224,26 @@ ipcMain.on('lumen:set-ignore-mouse', (_evt, ignore) => {
   win.setIgnoreMouseEvents(!!ignore, { forward: true });
 });
 
+// Collapsing hides the panel, but the window itself stays whatever size it
+// was — leaving a large transparent rectangle that still sits over the screen.
+// Shrinking the window to the pill is what actually gives the space back.
+let expandedBounds = null;
+ipcMain.on('lumen:set-collapsed', (_evt, payload) => {
+  if (!win) return;
+  const collapsed = !!(payload && payload.collapsed);
+  if (collapsed) {
+    expandedBounds = win.getBounds();
+    const w = Math.max(240, Math.ceil((payload && payload.width) || 420));
+    const h = Math.max(48, Math.ceil((payload && payload.height) || 60));
+    // Keep the pill where it already appears rather than re-centring it, so
+    // collapsing does not make the overlay jump across the screen.
+    win.setBounds({ x: expandedBounds.x, y: expandedBounds.y, width: w, height: h }, false);
+  } else if (expandedBounds) {
+    win.setBounds(expandedBounds, false);
+    expandedBounds = null;
+  }
+});
+
 ipcMain.on('lumen:quit',     () => app.quit());
 ipcMain.on('lumen:hide',     () => win && win.hide());
 ipcMain.on('lumen:show',     () => { if (win) { win.show(); win.focus(); } });

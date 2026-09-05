@@ -89,7 +89,7 @@ const L = window.lumen || {
   platform: 'browser',
   quit() {}, hide() {}, minimize() {}, show() {},
   openScreenPerms() {}, openMicPerms() {},
-  setOpacity() {}, setIgnoreMouse() {},
+  setOpacity() {}, setIgnoreMouse() {}, setCollapsed() {},
   captureScreen() { return Promise.resolve({ ok: false, error: 'browser' }); },
   onFocusInput() {}, onClickThroughChange() {}, onOpacityCycle() {},
 };
@@ -1482,6 +1482,20 @@ async function startMicChannel() {
     reportError('mic-denied', e);
     return false;
   }
+  // Plugging in headphones switches the default input, which ends the track
+  // bound to the old device. The stream stays "open" but goes permanently
+  // silent, so listening has to be re-established on the new default.
+  stream.getAudioTracks().forEach((t) => {
+    t.addEventListener('ended', () => {
+      if (!listening || stopped) return;
+      setStatus('input device changed — reconnecting the microphone…', true);
+      stopChannel(micChannel);
+      startMicChannel().then((ok) => {
+        if (ok) updateStatusLine();
+        else setStatus('microphone lost and could not be reopened', false);
+      });
+    });
+  });
   startChannel(micChannel, stream);
   return true;
 }
@@ -1492,6 +1506,29 @@ async function startMicChannel() {
 // app degrades to its previous single-channel behaviour.
 async function startSystemChannel() {
   if (!systemAudioEnabled()) return false;
+
+  // Loopback capture on macOS runs through ScreenCaptureKit, so it is gated by
+  // Screen Recording — not by the microphone permission. Denied, getDisplayMedia
+  // still resolves with a track that only ever carries silence, which looks
+  // exactly like "the other person said nothing". Check first and say so.
+  if (L.platform === 'darwin' && L.checkScreenPerm) {
+    try {
+      const perm = await L.checkScreenPerm();
+      if (perm !== 'granted') {
+        setStatus('mic only — Lumen needs Screen Recording permission to hear the other side', false);
+        addMsg('assistant', [
+          '**System audio needs Screen Recording permission.**',
+          '',
+          'On macOS the other participant\'s audio is captured through ScreenCaptureKit, which sits behind the Screen Recording permission — the microphone permission does not cover it.',
+          '',
+          'Open **System Settings → Privacy & Security → Screen Recording**, enable **Lumen**, then quit and reopen the app. macOS does not apply this permission to an already-running process.',
+        ].join('\n'));
+        L.openScreenPerms && L.openScreenPerms();
+        return false;
+      }
+    } catch (_) { /* fall through and let getDisplayMedia decide */ }
+  }
+
   let stream;
   try {
     // macOS loopback requires a video track in the request even though only
@@ -1819,6 +1856,17 @@ function setCollapsed(next) {
   const label = collapseBtn.querySelector('.tb-hide-label');
   if (label) label.textContent = next ? 'Show' : 'Hide';
   try { localStorage.setItem(LS_COLLAPSED, next ? '1' : '0'); } catch (_) { /* ignore */ }
+  // Shrink the window itself to the pill. Hiding the panel alone would leave
+  // a full-size transparent rectangle covering that part of the screen.
+  try {
+    const pill = document.querySelector('.title');
+    if (pill && L.setCollapsed) {
+      const r = pill.getBoundingClientRect();
+      // Body padding is 14px top / 12px sides; add a little slack so the
+      // pill's shadow is not clipped by the window edge.
+      L.setCollapsed(next, Math.ceil(r.width) + 30, Math.ceil(r.height) + 30);
+    }
+  } catch (_) { /* ignore */ }
 }
 if (collapseBtn) {
   collapseBtn.addEventListener('click', () => {

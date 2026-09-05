@@ -26,6 +26,11 @@ contextBridge.exposeInMainWorld('lumen', {
   // the OS window keeps swallowing the click either way.
   setIgnoreMouse: (ignore) => ipcRenderer.send('lumen:set-ignore-mouse', !!ignore),
 
+  // Collapsing must shrink the window too, or the hidden panel leaves an
+  // invisible rectangle sitting over the screen.
+  setCollapsed: (collapsed, width, height) =>
+    ipcRenderer.send('lumen:set-collapsed', { collapsed: !!collapsed, width, height }),
+
   captureScreen: () => ipcRenderer.invoke('lumen:capture-screen'),
   checkScreenPerm: () => ipcRenderer.invoke('lumen:check-screen-perm'),
 
