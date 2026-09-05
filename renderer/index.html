@@ -83,18 +83,22 @@
   * { box-sizing: border-box; margin:0; padding:0; }
   html, body { height: 100%; overflow: hidden; }
 
+  /* The window is frameless and transparent, so the page paints no ground of
+     its own: what shows behind the pill and the panel is the real screen.
+     Gaps stay click-through so they do not block whatever is underneath. */
   body {
     font: 14px/1.6 "Inter", -apple-system, "SF Pro Display", system-ui, sans-serif;
     color: var(--fg);
-    background: #09090f;
-    border-radius: 18px;
-    border: 1px solid rgba(139,92,246,0.15);
-    box-shadow: 0 40px 100px rgba(0,0,0,0.7), 0 0 0 1px rgba(255,255,255,0.03) inset, 0 0 80px rgba(139,92,246,0.08);
-    display: grid;
-    grid-template-rows: auto 1fr auto;
+    background: transparent;
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    padding: 14px 12px 10px;
     position:relative;
     overflow:hidden;
+    pointer-events: none;
   }
+  .title, .panel-wrap, .modal-backdrop { pointer-events: auto; }
 
   /* Animated gradient orbs background */
   body::before {
@@ -119,17 +123,68 @@
   ::-webkit-scrollbar-thumb:hover { background:rgba(139,92,246,0.5); }
 
   /* ── HEADER ─────────────────────────────────────────────────────────── */
+  /* Floating toolbar pill: the only always-visible chrome. */
   .title {
     -webkit-app-region: drag;
-    display:flex; align-items:center; gap:14px;
-    padding:14px 20px;
-    border-bottom:1px solid var(--hair);
+    display:inline-flex; align-items:center; gap:6px;
+    padding:5px 8px;
+    border-radius:var(--radius-pill);
+    max-width:100%;
     user-select:none;
-    background:var(--glass);
+    background:rgba(28,30,38,0.85);
+    border:1px solid rgba(255,255,255,0.14);
     backdrop-filter:var(--blur-chrome);
     -webkit-backdrop-filter:var(--blur-chrome);
-    box-shadow:var(--inset-hi);
+    box-shadow:0 8px 24px rgba(0,0,0,0.40), var(--inset-hi);
+    flex-shrink:0;
   }
+  .drag-pill {
+    -webkit-app-region: drag;
+    display:inline-flex; align-items:center; gap:7px;
+    padding:4px 10px; border-radius:var(--radius-pill);
+    background:var(--fill-2); cursor:grab;
+  }
+  .drag-pill:hover { background:var(--fill-3); }
+  /* Dotted grip, drawn rather than shipped as an asset. */
+  .drag-dots {
+    width:14px; height:10px; display:inline-block; opacity:0.85;
+    background-image:radial-gradient(circle, rgba(255,255,255,0.9) 1.2px, transparent 1.3px);
+    background-size:4px 4px; background-position:center;
+  }
+  .tb-divider { width:1px; height:20px; background:rgba(255,255,255,0.10); margin:0 2px; flex-shrink:0; }
+  .tb-spacer { flex:1; min-width:8px; }
+  .tb-live { display:inline-flex; gap:8px; font-size:11px; color:var(--muted); white-space:nowrap; }
+  .tb-status { color:var(--muted); font-size:11px; white-space:nowrap; overflow:hidden; text-overflow:ellipsis; max-width:180px; }
+
+  /* ── PANEL ──────────────────────────────────────────────────────────── */
+  .panel-wrap {
+    position:relative; margin-top:12px;
+    width:min(720px, 100%);
+    flex:1; min-height:0;
+    display:flex; flex-direction:column;
+  }
+  .panel {
+    flex:1; min-height:0;
+    display:flex; flex-direction:column;
+    background:rgba(20,22,28,0.72);
+    border:1px solid var(--hair);
+    border-radius:var(--radius-xl);
+    backdrop-filter:var(--blur-panel);
+    -webkit-backdrop-filter:var(--blur-panel);
+    box-shadow:var(--lift-2), var(--inset-hi);
+    overflow:hidden;
+    animation: panelIn 260ms cubic-bezier(0.22,1,0.36,1);
+  }
+  @keyframes panelIn { from { opacity:0; transform:translateY(-8px) scale(0.98); } to { opacity:1; transform:none; } }
+  /* The former sidebar, laid flat across the head of the panel. */
+  .panel-tabs {
+    display:flex; align-items:center; gap:2px;
+    padding:8px 10px; flex-shrink:0;
+    border-bottom:1px solid var(--border-2);
+    overflow-x:auto; scrollbar-width:none;
+  }
+  .panel-tabs::-webkit-scrollbar { display:none; }
+  .panel-body { flex:1; min-height:0; position:relative; display:flex; flex-direction:column; }
   .title .nodrag { -webkit-app-region: no-drag; }
   .brand { display:flex; align-items:center; gap:10px; font-weight:700; }
   .brand-mark {
@@ -163,13 +218,12 @@
   }
   .wctl { -webkit-app-region: no-drag; display:flex; gap:6px; align-items:center; }
   .wctl button {
-    width:30px; height:30px; padding:0; border-radius:var(--radius-sm);
-    display:grid; place-items:center; font-size:13px; color:var(--fg-dim);
-    border:1px solid var(--border); background:var(--glass-2);
-    cursor:pointer; transition:all 200ms cubic-bezier(0.4,0,0.2,1);
-    backdrop-filter:blur(10px);
+    width:26px; height:26px; padding:0; border-radius:var(--radius-sm);
+    display:grid; place-items:center; font-size:12px; color:var(--fg-dim);
+    border:none; background:transparent;
+    cursor:pointer; transition:background var(--t-fast), color var(--t-fast);
   }
-  .wctl button:hover { background:rgba(139,92,246,0.15); color:var(--fg); border-color:var(--accent-line); transform:scale(1.05); }
+  .wctl button:hover { background:var(--fill-3); color:var(--fg); }
   .wctl button.close:hover { background:rgba(244,63,94,0.2); color:#ffd1d1; border-color:rgba(244,63,94,0.4); }
   .wctl .opacity-badge {
     font-size:10px; color:var(--muted); padding:3px 8px; border:1px solid var(--border); border-radius:999px;
@@ -253,14 +307,15 @@
   /* ── SIDEBAR ────────────────────────────────────────────────────────── */
   .nav-section { padding:10px 8px 6px; color:var(--muted-2); font-size:10.5px; letter-spacing:1px; text-transform:uppercase; font-weight:600; }
   .nav-item {
-    display:flex; align-items:center; gap:12px;
-    padding:10px 12px; border-radius:var(--radius-sm);
-    color:var(--fg-dim); font-size:13px; cursor:pointer;
+    display:inline-flex; align-items:center; gap:6px;
+    padding:6px 11px; border-radius:var(--radius-pill);
+    color:var(--muted); font-size:12.5px; cursor:pointer;
     border:1px solid transparent;
     transition:background var(--t-fast), color var(--t-fast), border-color var(--t-fast);
     user-select:none;
     position:relative;
     font-weight:500;
+    white-space:nowrap; flex-shrink:0;
   }
   .nav-item:hover { background:var(--fill-2); color:var(--fg); border-color:var(--hair); }
   .nav-item.active {
@@ -269,8 +324,8 @@
     border-color:var(--accent-line);
     box-shadow:0 4px 20px rgba(139,92,246,0.15), var(--inset-hi);
   }
-  .nav-item .icon { width:22px; text-align:center; font-size:15px; }
-  .nav-item .label { flex:1; }
+  .nav-item .icon { font-size:13px; }
+  .nav-item .label { }
   .nav-item .pip { width:8px; height:8px; border-radius:50%; background:var(--ok); box-shadow:0 0 10px var(--ok), 0 0 4px var(--ok); }
   .nav-item.active .pip { background:var(--accent-2); box-shadow:0 0 10px var(--accent-2); }
 
@@ -339,11 +394,16 @@
   .user-name span { font-size:11px; color:var(--muted); }
 
   /* ── MAIN PANE ──────────────────────────────────────────────────────── */
+  /* Panes fill the panel body in normal flow — the old absolute positioning
+     assumed a fixed-height column, which the panel no longer is. */
   .pane {
-    position:absolute; inset:0;
-    display:flex; flex-direction:column; min-height:0;
+    flex:1; min-height:0;
+    display:flex; flex-direction:column;
   }
   .pane[hidden] { display:none; }
+  /* Non-chat panes scroll their own content rather than growing the panel. */
+  .pane .settings-pane { overflow-y:auto; padding:18px 20px 20px; }
+  #pane-notes > div { padding:18px 20px 20px; }
 
   .chat-area {
     flex:1; min-height:0;
@@ -351,7 +411,7 @@
     overflow:hidden;
   }
   .greeting {
-    padding: 32px 36px 14px;
+    padding: 20px 22px 10px;
     display:flex; align-items:flex-start; gap:18px;
     animation: floatIn 500ms ease-out;
   }
@@ -379,8 +439,8 @@
   }
 
   .suggestions {
-    padding: 12px 36px 8px;
-    display:grid; grid-template-columns: repeat(4, 1fr); gap:12px;
+    padding: 4px 22px 8px;
+    display:grid; grid-template-columns: repeat(4, 1fr); gap:8px;
   }
   .sugg {
     border:1px solid var(--border);
@@ -416,8 +476,8 @@
 
   .chat {
     flex:1; min-height:0;
-    overflow-y:auto; padding:18px 36px 8px;
-    display:flex; flex-direction:column; gap:18px;
+    overflow-y:auto; padding:14px 22px 8px;
+    display:flex; flex-direction:column; gap:16px;
   }
   .msg-row { display:flex; gap:12px; max-width:100%; animation: fadeIn 350ms cubic-bezier(0.4,0,0.2,1); }
   .msg-row.user { justify-content:flex-end; }
@@ -483,9 +543,9 @@
 
   /* ── COMMAND BAR (input) — floating glass pill ───────────────────────── */
   .cmd {
-    padding:14px 24px 18px;
+    padding:10px 16px 16px;
     display:flex; flex-direction:column; gap:8px;
-    background:transparent;
+    background:transparent; flex-shrink:0;
   }
   .input-shell {
     border:1px solid var(--hair);
@@ -656,16 +716,21 @@
   .pro-tip-body kbd { background:var(--bg-3); border:1px solid var(--border); border-radius:6px; padding:2px 7px; font-family: ui-monospace, "SF Mono", monospace; font-size:11px; }
 
   /* ── BOTTOM STATUS BAR ───────────────────────────────────────────────── */
+  /* Sits just under the panel as its own strip rather than a window footer. */
   .statusbar {
-    display:flex; align-items:center; gap:18px;
-    padding:10px 20px;
-    border-top:1px solid var(--border);
-    color:var(--muted); font-size:11px;
+    display:flex; align-items:center; gap:14px;
+    margin-top:8px; padding:6px 14px;
+    border:1px solid var(--hair); border-radius:var(--radius-pill);
+    color:var(--muted); font-size:10.5px;
     -webkit-app-region: drag;
-    user-select:none;
-    background:var(--glass);
-    backdrop-filter:blur(20px);
+    user-select:none; flex-shrink:0;
+    background:rgba(28,30,38,0.75);
+    backdrop-filter:var(--blur-chrome);
+    -webkit-backdrop-filter:var(--blur-chrome);
+    box-shadow:var(--inset-hi);
+    overflow-x:auto; scrollbar-width:none; white-space:nowrap;
   }
+  .statusbar::-webkit-scrollbar { display:none; }
   .sb-item { display:inline-flex; align-items:center; gap:7px; white-space:nowrap; }
   .sb-item::before { content:""; width:8px; height:8px; border-radius:50%; background:var(--muted-2); }
   .sb-item.ok::before { background:var(--ok); box-shadow:0 0 10px rgba(16,185,129,0.5), 0 0 4px rgba(16,185,129,0.8); }
@@ -789,21 +854,31 @@
 </head>
 <body>
 
-  <!-- ── HEADER ─────────────────────────────────────────────────────────── -->
+  <!-- ── TOOLBAR PILL ───────────────────────────────────────────────────── -->
   <div class="title">
-    <div class="brand nodrag">
+    <div class="drag-pill">
+      <span class="drag-dots" aria-hidden="true"></span>
       <span class="brand-mark">
         <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"><path d="M12 3 L21 19 L3 19 Z"/></svg>
       </span>
       <span class="brand-name"><b>LUMEN</b></span>
     </div>
-    <div class="title-hint">Press <kbd>⌘ Space</kbd> to open Lumen</div>
+
+    <span class="tb-divider"></span>
+
+    <span class="tb-live nodrag">
+      <span id="eye">👁 off</span>
+      <span id="ear">🎤 off</span>
+    </span>
     <span id="ct-badge" class="ct-pill nodrag" hidden>click-through</span>
-    <span id="status" class="nodrag" style="color:var(--muted); font-size:11px">checking…</span>
+    <span id="status" class="tb-status nodrag">checking…</span>
+
+    <span class="tb-spacer"></span>
+
     <div class="wctl">
       <span id="opacity-badge" class="opacity-badge" title="Window opacity">100%</span>
       <input type="range" id="opacity" class="opacity-slider" min="20" max="100" step="1" value="100" title="Drag to set window opacity (⌘⇧O cycles 100/70/40)" />
-      <button id="theme-toggle" class="wctl" style="font-size:12px;padding:0 6px;border-radius:8px;border:1px solid var(--border);background:transparent;color:var(--muted);cursor:pointer;width:auto;height:26px;" title="Toggle light/dark theme">☀️</button>
+      <button id="theme-toggle" title="Toggle light/dark theme">☀</button>
       <button id="hotkeys-btn" title="Show hotkeys (?)">?</button>
       <button id="zoom-out" title="Decrease chat font (⌘−)">A−</button>
       <button id="zoom-in" title="Increase chat font (⌘+)">A+</button>
@@ -812,389 +887,357 @@
     </div>
   </div>
 
-  <!-- ── BODY GRID ──────────────────────────────────────────────────────── -->
-  <div class="body">
+  <!-- ── PANEL ──────────────────────────────────────────────────────────── -->
+  <div class="panel-wrap">
+    <div class="panel">
 
-    <!-- LEFT SIDEBAR -->
-    <div class="col sidebar">
-      <div class="nav-item active" data-pane="chat">
-        <span class="icon">💬</span><span class="label">Chat</span><span class="pip"></span>
-      </div>
-      <div class="nav-item" data-pane="ask-screen">
-        <span class="icon">📷</span><span class="label">Ask from Screen</span>
-      </div>
-      <div class="nav-item" id="listen" data-pane="listen" title="Toggle microphone listening (Whisper)">
-        <span class="icon">🎤</span><span class="label" id="listen-label">Listen</span>
-      </div>
-      <div class="nav-item" data-pane="quick">
-        <span class="icon">⚡</span><span class="label">Quick Actions</span>
-      </div>
-      <div class="nav-item" data-pane="notes">
-        <span class="icon">📝</span><span class="label">Notes</span>
-      </div>
-      <div class="nav-item" data-pane="history">
-        <span class="icon">🕘</span><span class="label">History</span>
-      </div>
-      <div class="nav-item" data-pane="settings">
-        <span class="icon">⚙</span><span class="label">Settings</span>
-      </div>
-
-      <div class="sidebar-spacer"></div>
-
-      <div class="ai-card">
-        <div class="ai-card-head">
-          <span>AI Model</span>
-          <span id="lc-pill" class="lc-pill">LOCAL</span>
+      <!-- Tab strip: the former sidebar, laid flat across the panel head. -->
+      <div class="panel-tabs">
+        <div class="nav-item active" data-pane="chat">
+          <span class="icon">💬</span><span class="label">Chat</span><span class="pip"></span>
         </div>
-        <select id="backend">
-          <option value="echo">Echo (no AI)</option>
-          <option value="groq" selected>Groq (Llama)</option>
-          <option value="gemini">Google Gemini</option>
-          <option value="openai">OpenAI (GPT-4)</option>
-          <option value="claude">Claude (Anthropic)</option>
-          <option value="deepseek">DeepSeek</option>
-          <option value="grok">Grok (xAI)</option>
-          <option value="mistral">Mistral AI</option>
-          <option value="nvidia">NVIDIA NIM</option>
-          <option value="ollama">Ollama (Local)</option>
-        </select>
-        <div class="ai-status">
-          <span class="dot" id="ai-dot"></span>
-          <span id="ai-status-text">Checking…</span>
+        <div class="nav-item" data-pane="ask-screen">
+          <span class="icon">📷</span><span class="label">Screen</span>
+        </div>
+        <div class="nav-item" id="listen" data-pane="listen" title="Toggle microphone listening (Whisper)">
+          <span class="icon">🎤</span><span class="label" id="listen-label">Listen</span>
+        </div>
+        <div class="nav-item" data-pane="quick">
+          <span class="icon">⚡</span><span class="label">Quick</span>
+        </div>
+        <div class="nav-item" data-pane="notes">
+          <span class="icon">📝</span><span class="label">Notes</span>
+        </div>
+        <div class="nav-item" data-pane="history">
+          <span class="icon">🕘</span><span class="label">History</span>
+        </div>
+        <div class="nav-item" data-pane="settings">
+          <span class="icon">⚙</span><span class="label">Settings</span>
         </div>
       </div>
 
-      <div class="user-card">
-        <div class="user-avatar"><img src="lumen://app/avatar.png" alt="" style="width:100%;height:100%;object-fit:cover;border-radius:50%;display:block;" /></div>
-        <div class="user-name">
-          <b>Shinchan</b>
-          <span style="font-size:10.5px; color:var(--muted)">
-            <span id="eye">👁 off</span>
-            <span id="ear" style="margin-left:6px">🎤 off</span>
-          </span>
-        </div>
-      </div>
-    </div>
+      <div class="panel-body">
 
-    <!-- MAIN PANE -->
-    <div class="col main">
-
-      <!-- CHAT PANE -->
-      <div class="pane" id="pane-chat">
-        <div class="chat-area">
-          <div class="greeting" style="position:relative">
-            <button class="btn ghost" id="new-chat-btn" style="position:absolute;top:10px;right:10px;font-size:11px;padding:4px 10px;z-index:1">✚ New Chat</button>
-            <div class="greeting-text">
-              <h1 id="greeting">Good evening, User.</h1>
-              <p>How can I help you today?</p>
-            </div>
-            <div class="greeting-art" aria-hidden="true">
-              <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><path d="M12 3 L21 19 L3 19 Z"/></svg>
-            </div>
-          </div>
-
-          <div class="suggestions" id="suggestions">
-            <div class="sugg" data-action="summarize">
-              <span class="sicon">📄</span>
-              <span class="stitle">Summarize</span>
-              <span class="ssub">text or article</span>
-            </div>
-            <div class="sugg" data-action="explain">
-              <span class="sicon">📦</span>
-              <span class="stitle">Explain</span>
-              <span class="ssub">any concept</span>
-            </div>
-            <div class="sugg" data-action="translate">
-              <span class="sicon">🌐</span>
-              <span class="stitle">Translate</span>
-              <span class="ssub">to another language</span>
-            </div>
-            <div class="sugg" data-action="improve">
-              <span class="sicon">✏️</span>
-              <span class="stitle">Improve</span>
-              <span class="ssub">wording &amp; clarity</span>
-            </div>
-          </div>
-
-          <div id="transcript-wrap" class="transcript" hidden>
-            <div class="transcript-info">
-              <strong>Listening</strong>
-              <span id="transcript-lang"></span>
-            </div>
-            <div class="transcript-toolbar">
-              <button class="btn ghost" id="transcript-use">↩ Use as prompt</button>
-              <button class="btn ghost" id="transcript-append">+ Append</button>
-              <div class="spacer"></div>
-              <button class="btn ghost" id="transcript-clear">Clear</button>
-            </div>
-            <div id="transcript-text" class="transcript-text"></div>
-          </div>
-
-          <div id="chat" class="chat"></div>
-        </div>
-
-        <!-- COMMAND BAR -->
-        <div class="cmd">
-          <div class="input-shell">
-            <textarea id="input" rows="1" placeholder="Ask anything…   ⌘⏎ to send"></textarea>
-            <div class="input-row">
-              <div class="input-tools">
-                <button class="pill-btn" id="attach-btn" title="Attach an image" type="button">📎 Attach</button>
-                <button class="pill-btn" id="mic-input" title="Toggle microphone (Whisper)" type="button">🎤 Listen</button>
-                <button class="pill-btn" id="snap-input" title="Capture one frame and attach to next prompt" type="button">📷 Screenshot</button>
-                <button class="pill-btn" id="share-input" title="Toggle continuous screen sharing" type="button">🖥 Share</button>
-                <button class="pill-btn" id="export-chat" title="Export chat as Markdown" type="button">📥 Export</button>
-                <button class="pill-btn" id="clear" title="Clear chat history" type="button">🗑 Clear</button>
+        <!-- CHAT PANE -->
+        <div class="pane" id="pane-chat">
+          <div class="chat-area">
+            <div class="greeting" style="position:relative">
+              <button class="btn ghost" id="new-chat-btn" style="position:absolute;top:0;right:0;font-size:11px;padding:4px 10px;z-index:1">✚ New Chat</button>
+              <div class="greeting-text">
+                <h1 id="greeting">Good evening, User.</h1>
+                <p>How can I help you today?</p>
               </div>
-              <button class="send-btn" id="send" title="Send (⌘⏎)" type="button">↗</button>
             </div>
-          </div>
-        </div>
-      </div>
 
-      <!-- ASK FROM SCREEN PANE -->
-      <div class="pane" id="pane-ask-screen" hidden>
-        <div class="empty">
-          <div class="empty-card">
-            <div class="icon-big">📷</div>
-            <h3>Ask from Screen</h3>
-            <p>Drag-to-select region capture is coming soon. For now we'll start a full-screen share — switch back to <b>Chat</b> and ask away.</p>
-          </div>
-        </div>
-      </div>
-
-      <!-- LISTEN PANE -->
-      <div class="pane" id="pane-listen" hidden>
-        <div class="settings-pane">
-          <h3>Listen</h3>
-          <p style="color:var(--muted); font-size:12px; margin:0 0 14px;">Whisper transcription runs in the background while you chat. Toggle the mic from the sidebar — your transcript appears above the chat.</p>
-
-          <label class="s-label" style="display:block;margin:0 0 6px;">Capture channels</label>
-          <div class="row" style="display:flex;align-items:center;gap:8px;margin:0 0 6px;">
-            <span style="font-size:12.5px;color:var(--fg);flex:1;">🎤 You — microphone</span>
-            <span style="font-size:11px;color:var(--muted);">always on</span>
-          </div>
-          <div class="row" style="display:flex;align-items:center;gap:8px;margin:0 0 8px;">
-            <span style="font-size:12.5px;color:var(--fg);flex:1;">🔊 Them — system audio</span>
-            <button class="btn ghost" id="sys-audio-toggle" style="font-size:11px;padding:3px 10px;">On</button>
-          </div>
-          <p style="color:var(--muted); font-size:11.5px; margin:0 0 12px; line-height:1.5;">
-            System audio is captured before it reaches your speakers or headphones, so the other person is transcribed separately from you instead of bleeding into your microphone. Needs Screen&nbsp;Recording permission. Wearing headphones keeps the two channels cleanest.
-          </p>
-
-          <label class="s-label" style="display:block;margin:0 0 6px;">Live capture diagnostics</label>
-          <div id="capture-diag" style="font-family:ui-monospace,'SF Mono',monospace; font-size:11px; color:var(--muted); line-height:1.7; white-space:pre;">Not listening.</div>
-        </div>
-      </div>
-
-      <!-- QUICK ACTIONS PANE -->
-      <div class="pane" id="pane-quick" hidden>
-        <div class="settings-pane">
-          <h3>Quick Actions</h3>
-          <p style="color:var(--muted); font-size:12px; margin:0 0 14px;">Pick one and we'll prefill the chat input. Edit, then hit ⌘⏎.</p>
-          <div class="suggestions" id="suggestions-extra">
-            <div class="sugg" data-action="summarize"><span class="sicon">📄</span><span class="stitle">Summarize</span><span class="ssub">text or article</span></div>
-            <div class="sugg" data-action="explain"><span class="sicon">📦</span><span class="stitle">Explain</span><span class="ssub">any concept</span></div>
-            <div class="sugg" data-action="translate"><span class="sicon">🌐</span><span class="stitle">Translate</span><span class="ssub">to another language</span></div>
-            <div class="sugg" data-action="improve"><span class="sicon">✏️</span><span class="stitle">Improve</span><span class="ssub">wording &amp; clarity</span></div>
-          </div>
-        </div>
-      </div>
-
-      <!-- NOTES PANE -->
-      <div class="pane" id="pane-notes" hidden>
-        <div style="display:flex;flex-direction:column;height:100%;padding:12px 16px;gap:8px">
-          <div style="display:flex;align-items:center;gap:8px">
-            <span style="font-size:13px;font-weight:600;color:var(--fg)">📝 Notes</span>
-            <span style="flex:1"></span>
-            <button class="btn ghost" id="notes-clear" style="font-size:11px;padding:3px 8px;color:var(--danger)">Clear</button>
-          </div>
-          <textarea id="notes-area" placeholder="Jot anything here — saved automatically…" style="flex:1;resize:none;padding:10px;font-size:13px;line-height:1.5;background:var(--bg-2);border:1px solid var(--border);border-radius:10px;color:var(--fg);outline:none"></textarea>
-        </div>
-      </div>
-
-      <!-- HISTORY PANE -->
-      <div class="pane" id="pane-history" hidden>
-        <div class="empty">
-          <div class="empty-card">
-            <div class="icon-big">🕘</div>
-            <h3>History</h3>
-            <p>Chat history isn't persistent yet. This is on the roadmap.</p>
-          </div>
-        </div>
-      </div>
-
-      <!-- SETTINGS PANE -->
-      <div class="pane" id="pane-settings" hidden>
-        <div class="settings-pane">
-          <h3>Backend Settings</h3>
-          <div class="group">
-            <div class="row">
-              <div class="col">
-                <span class="lbl">Backend</span>
-                <select id="backend-shadow" disabled style="opacity:0.6">
-                  <option>(controlled from sidebar)</option>
-                </select>
+            <div class="suggestions" id="suggestions">
+              <div class="sugg" data-action="summarize">
+                <span class="sicon">📄</span>
+                <span class="stitle">Summarize</span>
+                <span class="ssub">text or article</span>
               </div>
-              <div class="col">
-                <span class="lbl">Model <span id="model-hint" style="opacity:0.7"></span></span>
-                <div style="display:flex;gap:6px;align-items:center">
-                  <select id="model-picker" style="flex:1;min-width:0"></select>
-                  <input id="model" value="llama-3.3-70b-versatile" placeholder="type custom model ID…" style="flex:1;min-width:0;display:none"/>
+              <div class="sugg" data-action="explain">
+                <span class="sicon">📦</span>
+                <span class="stitle">Explain</span>
+                <span class="ssub">any concept</span>
+              </div>
+              <div class="sugg" data-action="translate">
+                <span class="sicon">🌐</span>
+                <span class="stitle">Translate</span>
+                <span class="ssub">to another language</span>
+              </div>
+              <div class="sugg" data-action="improve">
+                <span class="sicon">✏️</span>
+                <span class="stitle">Improve</span>
+                <span class="ssub">wording &amp; clarity</span>
+              </div>
+            </div>
+
+            <div id="transcript-wrap" class="transcript" hidden>
+              <div class="transcript-info">
+                <strong>Listening</strong>
+                <span id="transcript-lang"></span>
+              </div>
+              <div class="transcript-toolbar">
+                <button class="btn ghost" id="transcript-use">↩ Use as prompt</button>
+                <button class="btn ghost" id="transcript-append">+ Append</button>
+                <div class="spacer"></div>
+                <button class="btn ghost" id="transcript-clear">Clear</button>
+              </div>
+              <div id="transcript-text" class="transcript-text"></div>
+            </div>
+
+            <div id="chat" class="chat"></div>
+          </div>
+
+          <!-- COMPOSER -->
+          <div class="cmd">
+            <div class="input-shell">
+              <textarea id="input" rows="1" placeholder="Ask anything…   ⌘⏎ to send"></textarea>
+              <div class="input-row">
+                <div class="input-tools">
+                  <button class="pill-btn" id="attach-btn" title="Attach an image" type="button">📎 Attach</button>
+                  <button class="pill-btn" id="mic-input" title="Toggle microphone (Whisper)" type="button">🎤 Listen</button>
+                  <button class="pill-btn" id="snap-input" title="Capture one frame and attach to next prompt" type="button">📷 Screenshot</button>
+                  <button class="pill-btn" id="share-input" title="Toggle continuous screen sharing" type="button">🖥 Share</button>
+                  <button class="pill-btn" id="export-chat" title="Export chat as Markdown" type="button">📥 Export</button>
+                  <button class="pill-btn" id="clear" title="Clear chat history" type="button">🗑 Clear</button>
                 </div>
-                <span id="model-custom-toggle" style="font-size:11px;color:var(--accent);cursor:pointer;margin-top:3px;display:inline-block">✏️ Custom model ID</span>
+                <button class="send-btn" id="send" title="Send (⌘⏎)" type="button">↗</button>
               </div>
-            </div>
-          </div>
-          <div class="group" id="key-row">
-            <div class="row">
-              <div class="col">
-                <span class="lbl" id="key-label">API key (stored only in this app)</span>
-                <input id="apikey" type="password" placeholder="gsk_…"/>
-              </div>
-              <button class="btn ghost" id="savekey" style="align-self:flex-end">Save key</button>
-            </div>
-          </div>
-          <div class="group" id="ollama-row" hidden>
-            <div class="row">
-              <div class="col">
-                <span class="lbl">Ollama URL</span>
-                <input id="ollamaurl" value="http://localhost:11434"/>
-              </div>
-            </div>
-          </div>
-          <div class="group">
-            <div class="row">
-              <button class="btn ghost" id="ping">Check connection</button>
-              <div class="spacer" style="flex:1"></div>
-              <button class="btn ghost" id="clearkey">Forget key</button>
-            </div>
-          </div>
-
-          <h3 style="margin-top:18px">Prompt Tuning</h3>
-          <div class="group">
-            <div class="col">
-              <span class="lbl">Negative prompt — what the AI should AVOID in answers</span>
-              <textarea id="neg-prompt" rows="4" style="width:100%; min-height:80px; padding:8px 10px;" placeholder="e.g. no marketing language, no disclaimers, no over-explaining…"></textarea>
-            </div>
-            <div class="row" style="margin-top:8px">
-              <button class="btn ghost" id="neg-save">Save</button>
-              <button class="btn ghost" id="neg-reset">Reset to defaults</button>
-            </div>
-          </div>
-
-          <h3 style="margin-top:18px">AI Persona</h3>
-          <div class="group">
-            <div class="col">
-              <span class="lbl">Custom persona — replaces default system prompt</span>
-              <textarea id="persona-prompt" rows="2" style="width:100%;padding:8px 10px;min-height:54px;" placeholder="e.g. You are an expert software engineer. Be technical and precise."></textarea>
-              <button class="btn ghost" id="persona-save" style="align-self:flex-start;margin-top:4px">Save persona</button>
-            </div>
-          </div>
-
-          <h3 style="margin-top:18px">Translate</h3>
-          <div class="group">
-            <div class="col">
-              <span class="lbl">Default target language for the Translate quick action</span>
-              <input id="translate-lang" placeholder="French"/>
-            </div>
-          </div>
-
-          <h3 style="margin-top:18px">Personal Documents</h3>
-          <div class="group">
-            <div class="col" style="gap:8px">
-              <span class="lbl">Upload your resume, CV, portfolio, or any reference document. The AI will automatically use it as context in every conversation.</span>
-              <div id="doc-list" style="display:flex;flex-direction:column;gap:6px;"></div>
-              <div class="row" style="margin-top:4px;gap:8px;flex-wrap:wrap">
-                <label class="btn ghost" style="cursor:pointer;display:inline-flex;align-items:center;gap:6px">
-                  📄 Upload document
-                  <input id="doc-upload-input" type="file" accept=".txt,.md,.pdf,.doc,.docx,.csv,.json" multiple style="display:none"/>
-                </label>
-                <button class="btn ghost" id="doc-clear-all" style="color:var(--danger)">Clear all</button>
-              </div>
-              <div id="doc-status" style="font-size:11px;color:var(--muted);margin-top:2px"></div>
-            </div>
-          </div>
-
-          <h3 style="margin-top:24px; padding-top:18px; border-top:1px solid var(--border);">About</h3>
-          <div class="group" style="display:flex; flex-direction:column; gap:10px;">
-            <div style="color:var(--muted); font-size:12px;">
-              <b style="color:var(--fg)">Lumen</b> · made for fun by Sonu Kumar.
-            </div>
-            <div class="row" style="gap:8px; flex-wrap:wrap;">
-              <button class="brand-btn linkedin" id="about-linkedin" type="button">
-                <svg viewBox="0 0 24 24" fill="currentColor" aria-hidden="true"><path d="M20.45 20.45h-3.56v-5.57c0-1.33-.02-3.04-1.85-3.04-1.85 0-2.13 1.45-2.13 2.94v5.67H9.36V9h3.41v1.56h.05c.48-.91 1.65-1.85 3.4-1.85 3.63 0 4.3 2.39 4.3 5.5v6.24zM5.34 7.43a2.06 2.06 0 1 1 0-4.12 2.06 2.06 0 0 1 0 4.12zM7.12 20.45H3.56V9h3.56v11.45zM22.22 0H1.77C.79 0 0 .77 0 1.72v20.55C0 23.23.79 24 1.77 24h20.45c.98 0 1.78-.77 1.78-1.73V1.72C24 .77 23.2 0 22.22 0z"/></svg>
-                <span>LinkedIn</span>
-              </button>
-              <button class="brand-btn coffee" id="about-coffee" type="button">
-                <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M18 8h1a4 4 0 0 1 0 8h-1"/><path d="M2 8h16v9a4 4 0 0 1-4 4H6a4 4 0 0 1-4-4V8z"/><line x1="6" y1="2" x2="6" y2="5"/><line x1="10" y1="2" x2="10" y2="5"/><line x1="14" y1="2" x2="14" y2="5"/></svg>
-                <span>Buy me a coffee</span>
-              </button>
-              <button class="btn ghost" id="about-hotkeys" type="button">⌘ Hotkeys</button>
             </div>
           </div>
         </div>
-      </div>
 
+        <!-- SCREEN PANE — the former right-bar Screen Mode section, which is
+             where these controls belonged all along. -->
+        <div class="pane" id="pane-ask-screen" hidden>
+          <div class="settings-pane">
+            <h3>Screen</h3>
+            <p style="color:var(--muted); font-size:12px; margin:0 0 14px;">Capture a frame or share continuously, then switch to <b>Chat</b> and ask about it.</p>
+
+            <div class="rb-item active" id="rb-region" title="Coming soon">
+              <div class="ricon">▣</div>
+              <div class="rtext"><strong>Capture Region</strong><span>Drag or select</span></div>
+            </div>
+            <div class="rb-item" id="share">
+              <div class="ricon">🖥</div>
+              <div class="rtext"><strong>Full Screen</strong><span id="share-sub">Capture entire</span></div>
+            </div>
+            <div class="rb-item" id="last-capture-row" style="margin-top:8px; flex-direction:column; align-items:stretch; gap:6px;">
+              <div class="rtext" style="display:flex; align-items:center; gap:8px;">
+                <div class="ricon" style="background:transparent">░░</div>
+                <div style="flex:1">
+                  <strong>Last Capture</strong>
+                  <span id="last-capture-meta">No captures yet</span>
+                </div>
+              </div>
+              <div id="preview-wrap" class="rb-thumb rb-thumb-empty" hidden>
+                <video id="preview-video" autoplay muted playsinline></video>
+                <img id="preview-still" alt="" hidden />
+              </div>
+              <span id="preview-backend" hidden></span>
+            </div>
+          </div>
+        </div>
+
+        <!-- LISTEN PANE -->
+        <div class="pane" id="pane-listen" hidden>
+          <div class="settings-pane">
+            <h3>Listen</h3>
+            <p style="color:var(--muted); font-size:12px; margin:0 0 14px;">Whisper transcription runs in the background while you chat. Your transcript appears above the chat.</p>
+
+            <label class="s-label" style="display:block;margin:0 0 6px;">Capture channels</label>
+            <div class="row" style="display:flex;align-items:center;gap:8px;margin:0 0 6px;">
+              <span style="font-size:12.5px;color:var(--fg);flex:1;">🎤 You — microphone</span>
+              <span style="font-size:11px;color:var(--muted);">always on</span>
+            </div>
+            <div class="row" style="display:flex;align-items:center;gap:8px;margin:0 0 8px;">
+              <span style="font-size:12.5px;color:var(--fg);flex:1;">🔊 Them — system audio</span>
+              <button class="btn ghost" id="sys-audio-toggle" style="font-size:11px;padding:3px 10px;">On</button>
+            </div>
+            <p style="color:var(--muted); font-size:11.5px; margin:0 0 12px; line-height:1.5;">
+              System audio is captured before it reaches your speakers or headphones, so the other person is transcribed separately from you instead of bleeding into your microphone. Needs Screen&nbsp;Recording permission. Wearing headphones keeps the two channels cleanest.
+            </p>
+
+            <label class="s-label" style="display:block;margin:0 0 6px;">Live capture diagnostics</label>
+            <div id="capture-diag" style="font-family:ui-monospace,'SF Mono',monospace; font-size:11px; color:var(--muted); line-height:1.7; white-space:pre;">Not listening.</div>
+          </div>
+        </div>
+
+        <!-- QUICK ACTIONS PANE -->
+        <div class="pane" id="pane-quick" hidden>
+          <div class="settings-pane">
+            <h3>Quick Actions</h3>
+            <p style="color:var(--muted); font-size:12px; margin:0 0 14px;">Pick one and we'll prefill the chat input. Edit, then hit ⌘⏎.</p>
+            <div class="suggestions" id="suggestions-extra">
+              <div class="sugg" data-action="summarize"><span class="sicon">📄</span><span class="stitle">Summarize</span><span class="ssub">text or article</span></div>
+              <div class="sugg" data-action="explain"><span class="sicon">📦</span><span class="stitle">Explain</span><span class="ssub">any concept</span></div>
+              <div class="sugg" data-action="translate"><span class="sicon">🌐</span><span class="stitle">Translate</span><span class="ssub">to another language</span></div>
+              <div class="sugg" data-action="improve"><span class="sicon">✏️</span><span class="stitle">Improve</span><span class="ssub">wording &amp; clarity</span></div>
+            </div>
+          </div>
+        </div>
+
+        <!-- NOTES PANE -->
+        <div class="pane" id="pane-notes" hidden>
+          <div style="display:flex;flex-direction:column;height:100%;gap:8px">
+            <div style="display:flex;align-items:center;gap:8px">
+              <span style="font-size:13px;font-weight:600;color:var(--fg)">📝 Notes</span>
+              <span style="flex:1"></span>
+              <button class="btn ghost" id="notes-clear" style="font-size:11px;padding:3px 8px;color:var(--danger)">Clear</button>
+            </div>
+            <textarea id="notes-area" placeholder="Jot anything here — saved automatically…" style="flex:1;min-height:220px;resize:none;padding:10px;font-size:13px;line-height:1.5;"></textarea>
+          </div>
+        </div>
+
+        <!-- HISTORY PANE — the former right-bar Recent list. -->
+        <div class="pane" id="pane-history" hidden>
+          <div class="settings-pane">
+            <h3>Recent</h3>
+            <div id="rb-recent" class="rb-recent">
+              <div class="empty-line">No recent prompts yet</div>
+            </div>
+            <div class="pro-tip" style="margin-top:16px">
+              <div class="pro-tip-head">☆ Pro Tip</div>
+              <div class="pro-tip-body">Use <kbd>⌘ Space</kbd> anywhere to open Lumen.</div>
+            </div>
+          </div>
+        </div>
+
+        <!-- SETTINGS PANE -->
+        <div class="pane" id="pane-settings" hidden>
+          <div class="settings-pane">
+
+            <div class="ai-card">
+              <div class="ai-card-head">
+                <span>AI Model</span>
+                <span id="lc-pill" class="lc-pill">LOCAL</span>
+              </div>
+              <select id="backend">
+                <option value="echo">Echo (no AI)</option>
+                <option value="groq" selected>Groq (Llama)</option>
+                <option value="gemini">Google Gemini</option>
+                <option value="openai">OpenAI (GPT-4)</option>
+                <option value="claude">Claude (Anthropic)</option>
+                <option value="deepseek">DeepSeek</option>
+                <option value="grok">Grok (xAI)</option>
+                <option value="mistral">Mistral AI</option>
+                <option value="nvidia">NVIDIA NIM</option>
+                <option value="ollama">Ollama (Local)</option>
+              </select>
+              <div class="ai-status">
+                <span class="dot" id="ai-dot"></span>
+                <span id="ai-status-text">Checking…</span>
+              </div>
+            </div>
+
+            <h3 style="margin-top:18px">Backend Settings</h3>
+            <div class="group">
+              <div class="row">
+                <div class="col">
+                  <span class="lbl">Backend</span>
+                  <select id="backend-shadow" disabled style="opacity:0.6">
+                    <option>(controlled above)</option>
+                  </select>
+                </div>
+                <div class="col">
+                  <span class="lbl">Model <span id="model-hint" style="opacity:0.7"></span></span>
+                  <div style="display:flex;gap:6px;align-items:center">
+                    <select id="model-picker" style="flex:1;min-width:0"></select>
+                    <input id="model" value="llama-3.3-70b-versatile" placeholder="type custom model ID…" style="flex:1;min-width:0;display:none"/>
+                  </div>
+                  <span id="model-custom-toggle" style="font-size:11px;color:var(--accent);cursor:pointer;margin-top:3px;display:inline-block">✏️ Custom model ID</span>
+                </div>
+              </div>
+            </div>
+            <div class="group" id="key-row">
+              <div class="row">
+                <div class="col">
+                  <span class="lbl" id="key-label">API key (stored only in this app)</span>
+                  <input id="apikey" type="password" placeholder="gsk_…"/>
+                </div>
+                <button class="btn ghost" id="savekey" style="align-self:flex-end">Save key</button>
+              </div>
+            </div>
+            <div class="group" id="ollama-row" hidden>
+              <div class="row">
+                <div class="col">
+                  <span class="lbl">Ollama URL</span>
+                  <input id="ollamaurl" value="http://localhost:11434"/>
+                </div>
+              </div>
+            </div>
+            <div class="group">
+              <div class="row">
+                <button class="btn ghost" id="ping">Check connection</button>
+                <div class="spacer" style="flex:1"></div>
+                <button class="btn ghost" id="clearkey">Forget key</button>
+              </div>
+            </div>
+
+            <h3 style="margin-top:18px">Prompt Tuning</h3>
+            <div class="group">
+              <div class="col">
+                <span class="lbl">Negative prompt — what the AI should AVOID in answers</span>
+                <textarea id="neg-prompt" rows="4" style="width:100%; min-height:80px; padding:8px 10px;" placeholder="e.g. no marketing language, no disclaimers, no over-explaining…"></textarea>
+              </div>
+              <div class="row" style="margin-top:8px">
+                <button class="btn ghost" id="neg-save">Save</button>
+                <button class="btn ghost" id="neg-reset">Reset to defaults</button>
+              </div>
+            </div>
+
+            <h3 style="margin-top:18px">AI Persona</h3>
+            <div class="group">
+              <div class="col">
+                <span class="lbl">Custom persona — replaces default system prompt</span>
+                <textarea id="persona-prompt" rows="2" style="width:100%;padding:8px 10px;min-height:54px;" placeholder="e.g. You are an expert software engineer. Be technical and precise."></textarea>
+                <button class="btn ghost" id="persona-save" style="align-self:flex-start;margin-top:4px">Save persona</button>
+              </div>
+            </div>
+
+            <h3 style="margin-top:18px">Translate</h3>
+            <div class="group">
+              <div class="col">
+                <span class="lbl">Default target language for the Translate quick action</span>
+                <input id="translate-lang" placeholder="French"/>
+              </div>
+            </div>
+
+            <h3 style="margin-top:18px">Personal Documents</h3>
+            <div class="group">
+              <div class="col" style="gap:8px">
+                <span class="lbl">Upload your resume, CV, portfolio, or any reference document. The AI will automatically use it as context in every conversation.</span>
+                <div id="doc-list" style="display:flex;flex-direction:column;gap:6px;"></div>
+                <div class="row" style="margin-top:4px;gap:8px;flex-wrap:wrap">
+                  <label class="btn ghost" style="cursor:pointer;display:inline-flex;align-items:center;gap:6px">
+                    📄 Upload document
+                    <input id="doc-upload-input" type="file" accept=".txt,.md,.pdf,.doc,.docx,.csv,.json" multiple style="display:none"/>
+                  </label>
+                  <button class="btn ghost" id="doc-clear-all" style="color:var(--danger)">Clear all</button>
+                </div>
+                <div id="doc-status" style="font-size:11px;color:var(--muted);margin-top:2px"></div>
+              </div>
+            </div>
+
+            <h3 style="margin-top:24px; padding-top:18px; border-top:1px solid var(--hair);">About</h3>
+            <div class="group" style="display:flex; flex-direction:column; gap:10px;">
+              <div class="user-card">
+                <div class="user-avatar"><img src="lumen://app/avatar.png" alt="" style="width:100%;height:100%;object-fit:cover;border-radius:50%;display:block;" /></div>
+                <div class="user-name">
+                  <b>Shinchan</b>
+                  <span style="font-size:10.5px; color:var(--muted)">Lumen · made for fun by Sonu Kumar</span>
+                </div>
+              </div>
+              <div class="row" style="gap:8px; flex-wrap:wrap;">
+                <button class="brand-btn linkedin" id="about-linkedin" type="button">
+                  <svg viewBox="0 0 24 24" fill="currentColor" aria-hidden="true"><path d="M20.45 20.45h-3.56v-5.57c0-1.33-.02-3.04-1.85-3.04-1.85 0-2.13 1.45-2.13 2.94v5.67H9.36V9h3.41v1.56h.05c.48-.91 1.65-1.85 3.4-1.85 3.63 0 4.3 2.39 4.3 5.5v6.24zM5.34 7.43a2.06 2.06 0 1 1 0-4.12 2.06 2.06 0 0 1 0 4.12zM7.12 20.45H3.56V9h3.56v11.45zM22.22 0H1.77C.79 0 0 .77 0 1.72v20.55C0 23.23.79 24 1.77 24h20.45c.98 0 1.78-.77 1.78-1.73V1.72C24 .77 23.2 0 22.22 0z"/></svg>
+                  <span>LinkedIn</span>
+                </button>
+                <button class="brand-btn coffee" id="about-coffee" type="button">
+                  <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M18 8h1a4 4 0 0 1 0 8h-1"/><path d="M2 8h16v9a4 4 0 0 1-4 4H6a4 4 0 0 1-4-4V8z"/><line x1="6" y1="2" x2="6" y2="5"/><line x1="10" y1="2" x2="10" y2="5"/><line x1="14" y1="2" x2="14" y2="5"/></svg>
+                  <span>Buy me a coffee</span>
+                </button>
+                <button class="btn ghost" id="about-hotkeys" type="button">⌘ Hotkeys</button>
+              </div>
+            </div>
+          </div>
+        </div>
+
+      </div>
     </div>
 
-    <!-- RIGHT BAR -->
-    <div class="col rightbar">
-
-      <div class="rb-section">
-        <h4>Screen Mode<span class="more">⋯</span></h4>
-        <div class="rb-item active" id="rb-region" title="Coming soon">
-          <div class="ricon">▣</div>
-          <div class="rtext"><strong>Capture Region</strong><span>Drag or select</span></div>
-        </div>
-        <div class="rb-item" id="share">
-          <div class="ricon">🖥</div>
-          <div class="rtext"><strong>Full Screen</strong><span id="share-sub">Capture entire</span></div>
-        </div>
-        <div class="rb-item" id="last-capture-row" style="margin-top:8px; flex-direction:column; align-items:stretch; gap:6px;">
-          <div class="rtext" style="display:flex; align-items:center; gap:8px;">
-            <div class="ricon" style="background:transparent">░░</div>
-            <div style="flex:1">
-              <strong>Last Capture</strong>
-              <span id="last-capture-meta">No captures yet</span>
-            </div>
-          </div>
-          <div id="preview-wrap" class="rb-thumb rb-thumb-empty" hidden>
-            <video id="preview-video" autoplay muted playsinline></video>
-            <img id="preview-still" alt="" hidden />
-          </div>
-          <span id="preview-backend" hidden></span>
-        </div>
-      </div>
-
-      <div class="rb-section">
-        <h4>Recent <span style="margin-left:auto; color:var(--muted-2); font-size:10px; text-transform:none; letter-spacing:0">View all</span></h4>
-        <div id="rb-recent" class="rb-recent">
-          <div class="empty-line">No recent prompts yet</div>
-        </div>
-      </div>
-
-      <div class="rb-section">
-        <div class="pro-tip">
-          <div class="pro-tip-head">☆ Pro Tip</div>
-          <div class="pro-tip-body">Use <kbd>⌘ Space</kbd> anywhere to open Lumen.</div>
-        </div>
-      </div>
-
+    <!-- ── STATUS STRIP ─────────────────────────────────────────────────── -->
+    <div class="statusbar">
+      <span class="sb-item ok" id="sb-ai">Local AI Running</span>
+      <span class="sb-item ok" id="sb-context">Context Memory On</span>
+      <span class="sb-item ok" id="sb-ocr">Screen OCR Ready</span>
+      <span class="sb-item ok" id="sb-privacy">🔒 Privacy: Local Only</span>
+      <span class="sb-spacer"></span>
+      <button class="sb-toggle on" id="sb-aot" title="Always on top (visual only — flag is set in main process)">
+        <span class="swatch"></span><span>Always on top</span>
+      </button>
     </div>
-
-  </div>
-
-  <!-- ── BOTTOM STATUS BAR ─────────────────────────────────────────────── -->
-  <div class="statusbar">
-    <span class="sb-item ok" id="sb-ai">Local AI Running</span>
-    <span class="sb-item ok" id="sb-context">Context Memory On</span>
-    <span class="sb-item ok" id="sb-ocr">Screen OCR Ready</span>
-    <span class="sb-item ok" id="sb-privacy">🔒 Privacy: Local Only</span>
-    <span class="sb-spacer"></span>
-    <button class="sb-toggle on" id="sb-aot" title="Always on top (visual only — flag is set in main process)">
-      <span class="swatch"></span><span>Always on top</span>
-    </button>
   </div>
 
   <input type="file" id="attach-input" accept="image/*" style="display:none" />
