@@ -208,17 +208,34 @@ describe('silence gate', () => {
       .toMatch(/state\s*===\s*'suspended'[\s\S]{0,120}resume\(\)/);
   });
 
-  it('gives the loopback channel a lower floor than the mic', () => {
-    // Mic audio runs through AGC; loopback does not, so it sits much lower.
-    const body = extractFunction(rendererSrc, 'channelSilenceFloor');
-    expect(body).toMatch(/'them'/);
-    const sandbox = new Function(`
-      let base = 0.018;
-      function readSilenceThreshold() { return base }
+  it('adapts the silence floor to the device instead of a fixed threshold', () => {
+    // Measured on this machine: a MacBook built-in mic peaks around 0.04,
+    // while a JLab Bluetooth headset mic reads 0.000874 for the same room —
+    // twenty times under the old fixed 0.018 floor, so every word from it was
+    // discarded as silence before reaching Whisper.
+    const absLine = rendererSrc.match(/const ABSOLUTE_FLOOR = [^\n]+/)[0];
+    const floor = new Function(`
+      function readSilenceThreshold() { return 0.018 }
+      ${absLine}
       ${extractFunction(rendererSrc, 'channelSilenceFloor')}
       return channelSilenceFloor;
     `)();
-    expect(sandbox({ name: 'them' })).toBeLessThan(sandbox({ name: 'you' }));
+
+    // A quiet Bluetooth mic: the floor tracks its own noise rather than the
+    // fixed value, so speech a few times above that noise gets through —
+    // where the old 0.018 threshold would have discarded all of it.
+    const quiet = floor({ name: 'you', noiseFloor: 0.0004 });
+    expect(quiet).toBeLessThan(0.018);
+    const speechOnBluetooth = 0.004;           // well above its noise, far under 0.018
+    expect(speechOnBluetooth).toBeGreaterThan(quiet);
+    expect(speechOnBluetooth).toBeLessThan(0.018);   // the old gate dropped it
+
+    // A loud built-in mic still gets a meaningful gate rather than 0.
+    const loud = floor({ name: 'you', noiseFloor: 0.01 });
+    expect(loud).toBeGreaterThan(quiet);
+
+    // Never below the point where audio is indistinguishable from silence.
+    expect(floor({ name: 'you', noiseFloor: 0 })).toBeGreaterThan(0);
   });
 });
 

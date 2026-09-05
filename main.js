@@ -192,10 +192,6 @@ function registerHotkeys() {
 const AUDIO_PROBE = process.argv.includes('--audio-probe');
 
 app.whenReady().then(() => {
-  if (AUDIO_PROBE) {
-    require('./audio-probe').runProbe(app);
-    return;
-  }
   // Serve `lumen://app/<path>` from `renderer/<path>` so the renderer document
   // has a real, secure origin. `app` is the only allowed host; `..` segments
   // are rejected to prevent path traversal outside `renderer/`.
@@ -207,6 +203,15 @@ app.whenReady().then(() => {
     const abs = path.join(__dirname, 'renderer', rel);
     return net.fetch(pathToFileURL(abs).toString());
   });
+
+  // Must come AFTER the protocol registration: navigator.mediaDevices only
+  // exists in a secure context, so the probe has to load over lumen:// just
+  // like the app does. From a data: URL it is undefined and every capture
+  // call fails with a misleading TypeError.
+  if (AUDIO_PROBE) {
+    require('./audio-probe').runProbe(app);
+    return;
+  }
 
   // Check screen recording permission on startup and notify user if missing.
   // On macOS 10.15+, getMediaAccessStatus returns 'granted'/'denied'/'restricted'/'not-determined'.

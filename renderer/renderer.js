@@ -267,6 +267,9 @@ function createCaptureChannel(name, label) {
     analyser: null,
     rmsTimer: null,
     peakRMS: 0,
+    // Quietest level this device produces, used as the reference for the
+    // adaptive silence gate.
+    noiseFloor: 0,
     // Set once the meter observes a non-zero sample. Until then the silence
     // gate stays open rather than trusting a reading of 0.
     meterOk: false,
@@ -279,11 +282,21 @@ function createCaptureChannel(name, label) {
   };
 }
 
-// Loopback levels sit well below a mic's, which runs through automatic gain
-// control. Reusing the mic's floor for system audio gates away normal speech.
+// Levels vary enormously by device: a MacBook's built-in mic peaks around
+// 0.04 while a Bluetooth headset mic reads under 0.001 for the same speech,
+// and loopback is quieter still. A fixed threshold tuned on one of them
+// silently discards every word from the others, so the gate adapts to what
+// the channel is actually delivering.
+//
+// The floor tracks the quietest level seen recently and speech has to stand a
+// few times above it; the configured value is only an upper bound, so an
+// explicit user setting can still make the gate stricter but never so strict
+// that a quiet device is muted entirely.
+const ABSOLUTE_FLOOR = 0.0008;   // below this it is indistinguishable from digital silence
 function channelSilenceFloor(ch) {
-  const base = readSilenceThreshold();
-  return ch.name === 'them' ? base / 6 : base;
+  const configured = readSilenceThreshold();
+  const adaptive = ch.noiseFloor > 0 ? ch.noiseFloor * 3 : ABSOLUTE_FLOOR;
+  return Math.max(ABSOLUTE_FLOOR, Math.min(configured, adaptive));
 }
 const micChannel = createCaptureChannel('you', 'You');
 const sysChannel = createCaptureChannel('them', 'Them');
@@ -1403,6 +1416,15 @@ function attachSilenceMeter(ch) {
         // stream, which is what licenses the silence gate to drop anything.
         if (rms > 0) ch.meterOk = true;
         if (rms > ch.peakRMS) ch.peakRMS = rms;
+        // Track the quietest level this device produces, so the gate can be
+        // expressed relative to its own noise floor rather than an absolute
+        // that only suits one class of microphone. It creeps upward slowly so
+        // a long silence cannot pin it at an unrealistically low value.
+        if (rms > 0) {
+          ch.noiseFloor = ch.noiseFloor > 0
+            ? Math.min(ch.noiseFloor * 1.0005, rms < ch.noiseFloor ? rms : ch.noiseFloor)
+            : rms;
+        }
       } catch (_) { /* ignore */ }
     }, 100);
   } catch (_) { ch.audioCtx = null; ch.analyser = null; }
@@ -1418,6 +1440,7 @@ function startChannel(ch, stream) {
   ch.posted = 0;
   ch.dropped = 0;
   ch.meterOk = false;
+  ch.noiseFloor = 0;
   attachSilenceMeter(ch);
 
   const pick = pickRecorderMime();
