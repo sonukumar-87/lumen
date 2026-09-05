@@ -230,19 +230,31 @@ ipcMain.on('lumen:set-ignore-mouse', (_evt, ignore) => {
 // invisible rectangle sitting over the screen. The renderer measures what is
 // actually drawn and the window is resized to exactly that, both when the
 // panel collapses and whenever its content changes size.
+// Only used for collapse/expand. The panel fills the window the rest of the
+// time, so nothing else needs to resize it — and resizing on content changes
+// would fight the user every time they dragged an edge.
+let expandedBounds = null;
 ipcMain.on('lumen:fit-window', (_evt, payload) => {
   if (!win || win.isDestroyed() || !payload) return;
-  // The renderer caps content in fixed pixels because it cannot use viewport
-  // units to size a window it is itself sizing, so the screen bound is
-  // applied here instead.
-  const area = screen.getDisplayMatching(win.getBounds()).workAreaSize;
+  const b = win.getBounds();
+
+  if (!payload.collapse) {
+    // Expanding: put back whatever size the window had before it collapsed,
+    // so a manual resize survives the round trip.
+    if (expandedBounds) {
+      win.setBounds({ x: b.x, y: b.y, width: expandedBounds.width, height: expandedBounds.height }, false);
+      expandedBounds = null;
+    }
+    return;
+  }
+
+  const area = screen.getDisplayMatching(b).workAreaSize;
   const w = Math.min(Math.max(200, Math.round(payload.width)), area.width - 20);
   const h = Math.min(Math.max(44, Math.round(payload.height)), area.height - 20);
-  const b = win.getBounds();
-  // Ignore sub-pixel churn: resizing on every rounding difference would feed
-  // back into the renderer's own measurement and oscillate.
   if (Math.abs(b.width - w) < 2 && Math.abs(b.height - h) < 2) return;
-  // Anchor at the existing top-left so the overlay never jumps as it resizes.
+  // Remember the expanded size before shrinking, and anchor at the existing
+  // top-left so the overlay never jumps.
+  expandedBounds = { width: b.width, height: b.height };
   win.setBounds({ x: b.x, y: b.y, width: w, height: h }, false);
 });
 

@@ -1559,6 +1559,29 @@ async function startSystemChannel() {
   return true;
 }
 
+// Plugging in headphones changes the default input. The track bound to the old
+// device sometimes fires 'ended' and sometimes just goes quiet, so the device
+// list is watched as well — otherwise listening dies silently mid-session.
+let micRestartPending = false;
+if (navigator.mediaDevices && 'ondevicechange' in navigator.mediaDevices) {
+  navigator.mediaDevices.addEventListener('devicechange', () => {
+    if (!listening || stopped || micRestartPending) return;
+    micRestartPending = true;
+    // Let the OS settle on the new default before reopening, or the reopened
+    // stream can bind to the device that is on its way out.
+    setTimeout(() => {
+      micRestartPending = false;
+      if (!listening || stopped) return;
+      setStatus('audio device changed — reconnecting the microphone…', true);
+      stopChannel(micChannel);
+      startMicChannel().then((ok) => {
+        if (ok) updateStatusLine();
+        else setStatus('microphone lost and could not be reopened', false);
+      });
+    }, 600);
+  });
+}
+
 async function startWhisper() {
   stopped = false;
   errored = false;
@@ -1864,47 +1887,24 @@ function setCollapsed(next) {
 // invisible rectangle that still sits over the screen and intercepts the
 // pointer. Measure the union of what is actually visible and ask the main
 // process to match it.
+// Collapsed, the window shrinks to the pill so no invisible rectangle is left
+// over the screen. Expanded, the previous size is restored — the main process
+// remembers it, so a manual resize survives a collapse/expand round trip.
 function fitWindowToContent() {
   if (!L.fitWindow) return;
-  const parts = [
-    document.querySelector('.title'),
-    document.querySelector('.panel-wrap.collapsed') ? null : document.querySelector('.panel-wrap'),
-  ].filter(Boolean);
-  if (!parts.length) return;
-
-  let width = 0;
-  let bottom = 0;
-  for (const el of parts) {
-    const r = el.getBoundingClientRect();
-    if (!r.width && !r.height) continue;   // hidden element contributes nothing
-    if (r.width > width) width = r.width;
-    if (r.bottom > bottom) bottom = r.bottom;
-  }
-  if (!width || !bottom) return;
-
-  // Exactly the drawn bounds — no allowance for drop shadows. Padding the
-  // window out to fit them would put invisible, pointer-catching area back
-  // around the overlay, which is the thing being avoided; the shadows are
-  // kept tight enough in CSS that clipping is not noticeable.
-  L.fitWindow(Math.ceil(width), Math.ceil(bottom));
-}
-
-// Re-fit whenever the drawn size changes: switching panes, a reply arriving,
-// the transcript appearing, the composer growing with a long prompt.
-let fitQueued = false;
-function queueFit() {
-  if (fitQueued) return;
-  fitQueued = true;
-  requestAnimationFrame(() => { fitQueued = false; fitWindowToContent(); });
-}
-if (typeof ResizeObserver === 'function') {
-  const ro = new ResizeObserver(queueFit);
-  const watch = document.querySelector('.panel-wrap');
   const pill = document.querySelector('.title');
-  if (watch) ro.observe(watch);
-  if (pill) ro.observe(pill);
+  const collapsed = !!document.querySelector('.panel-wrap.collapsed');
+  if (!collapsed) { L.fitWindow(0, 0, false); return; }   // 0,0 = restore
+  if (!pill) return;
+  const r = pill.getBoundingClientRect();
+  if (!r.width || !r.height) return;
+  L.fitWindow(Math.ceil(r.width), Math.ceil(r.height), true);
 }
-window.addEventListener('load', queueFit);
+
+// Deliberately NOT re-fitted on every content change. Resizing the window to
+// the content overrode every manual resize — dragging the edge sprang back —
+// and capped the chat at whatever the content happened to be. The panel fills
+// the window instead, so the window only needs resizing when it collapses.
 if (collapseBtn) {
   collapseBtn.addEventListener('click', () => {
     setCollapsed(!panelWrapEl.classList.contains('collapsed'));
@@ -1957,10 +1957,23 @@ window.addEventListener('load', () => setIgnoreMouse(true));
 // by the silence gate — so the counters that distinguish those cases are shown
 // rather than left in the console.
 let diagTimer = null;
+// Screen Recording is what gates loopback capture on macOS, so its status is
+// shown here rather than left to be inferred from an empty transcript.
+let screenPermLabel = 'checking…';
+function refreshScreenPerm() {
+  if (!L.checkScreenPerm) { screenPermLabel = 'n/a'; return; }
+  L.checkScreenPerm()
+    .then((s) => { screenPermLabel = s; })
+    .catch(() => { screenPermLabel = 'unknown'; });
+}
+refreshScreenPerm();
+
 function renderCaptureDiag() {
   if (!captureDiag) return;
-  if (!listening) { captureDiag.textContent = 'Not listening.'; return; }
-  captureDiag.textContent = captureChannels.map((ch) => {
+  const header = 'Screen Recording: ' + screenPermLabel
+    + (screenPermLabel === 'granted' ? '' : '   ← Them cannot work without this');
+  if (!listening) { captureDiag.textContent = header + '\nNot listening.'; return; }
+  captureDiag.textContent = header + '\n' + captureChannels.map((ch) => {
     if (!ch.active) return `${ch.label.padEnd(5)} off`;
     const live = ch.stream && ch.stream.getAudioTracks().some(t => t.readyState === 'live');
     return [
@@ -1976,6 +1989,7 @@ function renderCaptureDiag() {
 }
 function startDiagTimer() {
   if (diagTimer) clearInterval(diagTimer);
+  refreshScreenPerm();
   diagTimer = setInterval(renderCaptureDiag, 500);
   renderCaptureDiag();
 }

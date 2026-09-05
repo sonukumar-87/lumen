@@ -242,18 +242,31 @@ describe('device and permission recovery', () => {
     // Hiding the panel alone leaves a full-size transparent rectangle.
     expect(extractFunction(rendererSrc, 'setCollapsed')).toMatch(/fitWindowToContent/);
     expect(mainSrc).toMatch(/lumen:fit-window/);
-    expect(rendererSrc).toMatch(/ResizeObserver/);
   });
 
-  it('caps panel height in px, never viewport units', () => {
-    // The window is sized FROM the panel's height, so a vh cap is circular:
-    // collapsed the window is ~40px tall, the cap computes to zero, and
-    // expanding can never grow the panel back. Same for shrinking.
+  it('lets the panel fill the window so a manual resize sticks', () => {
+    // The window must not be resized to fit the content: doing so overrode
+    // every manual resize (dragging an edge sprang straight back) and capped
+    // the chat at whatever height the content happened to be.
     const html = readFileSync(resolve(__dirname, '../renderer/index.html'), 'utf8');
-    const panelWrap = html.slice(html.indexOf('.panel-wrap {'), html.indexOf('.panel-wrap {') + 500);
-    expect(panelWrap).not.toMatch(/max-height:\s*calc\([^)]*vh/);
-    expect(panelWrap).toMatch(/max-height:\s*\d+px/);
-    expect(panelWrap).toMatch(/flex:\s*0\s+0\s+auto/);
+    const panelWrap = html.slice(html.indexOf('.panel-wrap {'), html.indexOf('.panel-wrap {') + 420);
+    expect(panelWrap).toMatch(/flex:\s*1\s+1\s+auto/);
+    expect(panelWrap).not.toMatch(/max-height/);
+  });
+
+  it('gives the chat log its own scroll area', () => {
+    // Without this the composer overlaps the log and long answers cannot be
+    // read, with no visible scrollbar to reveal that anything was cut off.
+    const html = readFileSync(resolve(__dirname, '../renderer/index.html'), 'utf8');
+    const chat = html.slice(html.indexOf('\n  .chat {'), html.indexOf('\n  .chat {') + 300);
+    expect(chat).toMatch(/overflow-y:\s*auto/);
+    expect(chat).toMatch(/flex:\s*1\s+1\s+auto/);
+    expect(html).toMatch(/::-webkit-scrollbar\s*\{\s*width:\s*10px/);
+  });
+
+  it('resizes the window only when collapsing, not on content changes', () => {
+    expect(rendererSrc).not.toMatch(/new ResizeObserver\(queueFit\)/);
+    expect(mainSrc).toMatch(/expandedBounds/);
   });
 
   it('forwards mouse events over transparent gaps', () => {

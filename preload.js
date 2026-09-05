@@ -28,7 +28,8 @@ contextBridge.exposeInMainWorld('lumen', {
 
   // The window must track the drawn UI exactly: anything it covers beyond that
   // is an invisible rectangle sitting over the screen.
-  fitWindow: (width, height) => ipcRenderer.send('lumen:fit-window', { width, height }),
+  fitWindow: (width, height, collapse) =>
+    ipcRenderer.send('lumen:fit-window', { width, height, collapse: !!collapse }),
 
   captureScreen: () => ipcRenderer.invoke('lumen:capture-screen'),
   checkScreenPerm: () => ipcRenderer.invoke('lumen:check-screen-perm'),
