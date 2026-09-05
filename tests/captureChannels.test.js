@@ -305,6 +305,31 @@ describe('device and permission recovery', () => {
   });
 });
 
+describe('end-of-turn flushing', () => {
+  it('flushes on the silence after speech, not only on the timer', () => {
+    // A 5s fixed window means a question finishing 200ms in waits 4.8s before
+    // the request is even sent — most of the delay is a clock, not Whisper.
+    const meter = extractFunction(rendererSrc, 'attachSilenceMeter');
+    expect(meter).toMatch(/silentRun/);
+    expect(meter).toMatch(/END_OF_TURN_SAMPLES/);
+    expect(meter).toMatch(/rotateChannel\(ch\)/);
+  });
+
+  it('requires real speech and a minimum length before flushing early', () => {
+    // Otherwise a cough emits a sub-second chunk, which transcribes as noise.
+    const meter = extractFunction(rendererSrc, 'attachSilenceMeter');
+    expect(meter).toMatch(/MIN_VOICED_SAMPLES/);
+    expect(meter).toMatch(/MIN_CHUNK_SAMPLES/);
+  });
+
+  it('treats the interval as a maximum, restarting it on every flush', () => {
+    // Left running it would fire just after an early flush and emit a
+    // fragment of the next utterance.
+    expect(extractFunction(rendererSrc, 'rotateChannel'))
+      .toMatch(/clearInterval\(ch\.rotateTimer\)[\s\S]{0,200}setInterval/);
+  });
+});
+
 describe('main process enablement', () => {
   it('enables the Chromium features macOS loopback needs, before app ready', () => {
     expect(mainSrc).toMatch(/MacLoopbackAudioForScreenShare/);

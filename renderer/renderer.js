@@ -276,6 +276,7 @@ function createCaptureChannel(name, label) {
     windowSamples: 0,
     voicedSamples: 0,
     lastVoicedRatio: 1,
+    silentRun: 0,
     // Set once the meter observes a non-zero sample. Until then the silence
     // gate stays open rather than trusting a reading of 0.
     meterOk: false,
@@ -298,6 +299,11 @@ function createCaptureChannel(name, label) {
 // few times above it; the configured value is only an upper bound, so an
 // explicit user setting can still make the gate stricter but never so strict
 // that a quiet device is muted entirely.
+// End-of-turn detection, in 100ms meter ticks.
+const END_OF_TURN_SAMPLES = 7;    // 700ms of silence ends a turn — long enough
+                                  // to ride out the pauses inside a sentence
+const MIN_CHUNK_SAMPLES  = 12;    // never emit a chunk shorter than 1.2s
+const MIN_VOICED_SAMPLES = 4;     // and only if ~400ms of it was actually speech
 const ABSOLUTE_FLOOR = 0.0008;   // below this it is indistinguishable from digital silence
 function channelSilenceFloor(ch) {
   const configured = readSilenceThreshold();
@@ -1437,7 +1443,22 @@ function attachSilenceMeter(ch) {
         // Whisper invent text. Lowering the floor for quiet microphones let
         // those chunks back in, so voiced duration is now required too.
         ch.windowSamples += 1;
-        if (rms > channelSilenceFloor(ch)) ch.voicedSamples += 1;
+        const voiced = rms > channelSilenceFloor(ch);
+        if (voiced) ch.voicedSamples += 1;
+
+        // Flush as soon as a turn ends instead of waiting out the rest of the
+        // fixed window. On a 5s timer a question that finishes 200ms in sits
+        // buffered for 4.8s before the request is even sent, so most of the
+        // delay is spent watching a clock rather than waiting on Whisper.
+        // Cutting on the silence after speech also keeps whole utterances
+        // together, which transcribes better than slicing mid-sentence.
+        ch.silentRun = voiced ? 0 : ch.silentRun + 1;
+        if (ch.voicedSamples >= MIN_VOICED_SAMPLES
+            && ch.windowSamples >= MIN_CHUNK_SAMPLES
+            && ch.silentRun >= END_OF_TURN_SAMPLES) {
+          ch.silentRun = 0;
+          rotateChannel(ch);
+        }
       } catch (_) { /* ignore */ }
     }, 100);
   } catch (_) { ch.audioCtx = null; ch.analyser = null; }
@@ -1457,6 +1478,7 @@ function startChannel(ch, stream) {
   ch.windowSamples = 0;
   ch.voicedSamples = 0;
   ch.lastVoicedRatio = 1;
+  ch.silentRun = 0;
   attachSilenceMeter(ch);
 
   const pick = pickRecorderMime();
@@ -1470,6 +1492,13 @@ function startChannel(ch, stream) {
 
 function rotateChannel(ch) {
   if (!ch.active || errored) return;
+  // Restart the interval so it acts as a maximum chunk length rather than a
+  // fixed cadence. Left running, it would fire moments after an early
+  // end-of-turn flush and emit a fragment of the next utterance.
+  if (ch.rotateTimer) {
+    clearInterval(ch.rotateTimer);
+    ch.rotateTimer = setInterval(() => rotateChannel(ch), readChunkSeconds() * 1000);
+  }
   // Snapshot peak RMS for the chunk about to flush, then reset for the new
   // window. The synchronous ondataavailable reads it back off the recorder.
   try { ch.recorder._peakRMS = ch.peakRMS; } catch (_) { /* ignore */ }
