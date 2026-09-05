@@ -240,9 +240,9 @@ describe('device and permission recovery', () => {
 
   it('shrinks the window when the panel collapses', () => {
     // Hiding the panel alone leaves a full-size transparent rectangle.
-    expect(extractFunction(rendererSrc, 'setCollapsed')).toMatch(/L\.setCollapsed/);
-    expect(mainSrc).toMatch(/lumen:set-collapsed/);
-    expect(mainSrc).toMatch(/expandedBounds/);
+    expect(extractFunction(rendererSrc, 'setCollapsed')).toMatch(/fitWindowToContent/);
+    expect(mainSrc).toMatch(/lumen:fit-window/);
+    expect(rendererSrc).toMatch(/ResizeObserver/);
   });
 
   it('forwards mouse events over transparent gaps', () => {

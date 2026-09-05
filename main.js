@@ -65,8 +65,10 @@ function createWindow() {
     // Centred horizontally, like an overlay rather than a docked side panel.
     x: Math.max(20, Math.round((sw - W) / 2)),
     y: Math.max(20, Math.round((shh - H) / 2.4)),
-    minWidth: 380,
-    minHeight: 260,
+    // Low enough to shrink to the bare pill. A larger floor would leave an
+    // invisible rectangle on screen whenever the panel is collapsed.
+    minWidth: 200,
+    minHeight: 44,
     frame: false,
     transparent: true,
     backgroundColor: '#00000000',
@@ -224,24 +226,20 @@ ipcMain.on('lumen:set-ignore-mouse', (_evt, ignore) => {
   win.setIgnoreMouseEvents(!!ignore, { forward: true });
 });
 
-// Collapsing hides the panel, but the window itself stays whatever size it
-// was — leaving a large transparent rectangle that still sits over the screen.
-// Shrinking the window to the pill is what actually gives the space back.
-let expandedBounds = null;
-ipcMain.on('lumen:set-collapsed', (_evt, payload) => {
-  if (!win) return;
-  const collapsed = !!(payload && payload.collapsed);
-  if (collapsed) {
-    expandedBounds = win.getBounds();
-    const w = Math.max(240, Math.ceil((payload && payload.width) || 420));
-    const h = Math.max(48, Math.ceil((payload && payload.height) || 60));
-    // Keep the pill where it already appears rather than re-centring it, so
-    // collapsing does not make the overlay jump across the screen.
-    win.setBounds({ x: expandedBounds.x, y: expandedBounds.y, width: w, height: h }, false);
-  } else if (expandedBounds) {
-    win.setBounds(expandedBounds, false);
-    expandedBounds = null;
-  }
+// The window is transparent, so any part of it the UI does not cover is an
+// invisible rectangle sitting over the screen. The renderer measures what is
+// actually drawn and the window is resized to exactly that, both when the
+// panel collapses and whenever its content changes size.
+ipcMain.on('lumen:fit-window', (_evt, payload) => {
+  if (!win || win.isDestroyed() || !payload) return;
+  const w = Math.max(200, Math.round(payload.width));
+  const h = Math.max(44, Math.round(payload.height));
+  const b = win.getBounds();
+  // Ignore sub-pixel churn: resizing on every rounding difference would feed
+  // back into the renderer's own measurement and oscillate.
+  if (Math.abs(b.width - w) < 2 && Math.abs(b.height - h) < 2) return;
+  // Anchor at the existing top-left so the overlay never jumps as it resizes.
+  win.setBounds({ x: b.x, y: b.y, width: w, height: h }, false);
 });
 
 ipcMain.on('lumen:quit',     () => app.quit());

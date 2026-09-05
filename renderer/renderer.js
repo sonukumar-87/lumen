@@ -89,7 +89,7 @@ const L = window.lumen || {
   platform: 'browser',
   quit() {}, hide() {}, minimize() {}, show() {},
   openScreenPerms() {}, openMicPerms() {},
-  setOpacity() {}, setIgnoreMouse() {}, setCollapsed() {},
+  setOpacity() {}, setIgnoreMouse() {}, fitWindow() {},
   captureScreen() { return Promise.resolve({ ok: false, error: 'browser' }); },
   onFocusInput() {}, onClickThroughChange() {}, onOpacityCycle() {},
 };
@@ -1856,18 +1856,60 @@ function setCollapsed(next) {
   const label = collapseBtn.querySelector('.tb-hide-label');
   if (label) label.textContent = next ? 'Show' : 'Hide';
   try { localStorage.setItem(LS_COLLAPSED, next ? '1' : '0'); } catch (_) { /* ignore */ }
-  // Shrink the window itself to the pill. Hiding the panel alone would leave
-  // a full-size transparent rectangle covering that part of the screen.
-  try {
-    const pill = document.querySelector('.title');
-    if (pill && L.setCollapsed) {
-      const r = pill.getBoundingClientRect();
-      // Body padding is 14px top / 12px sides; add a little slack so the
-      // pill's shadow is not clipped by the window edge.
-      L.setCollapsed(next, Math.ceil(r.width) + 30, Math.ceil(r.height) + 30);
-    }
-  } catch (_) { /* ignore */ }
+  fitWindowToContent();
 }
+
+// ── Keep the window the same size as the drawn UI ───────────────────────────
+// The window is transparent, so every pixel the UI does not cover is an
+// invisible rectangle that still sits over the screen and intercepts the
+// pointer. Measure the union of what is actually visible and ask the main
+// process to match it.
+const BODY_PAD_X = 12;   // body padding-left/right
+const BODY_PAD_TOP = 14;
+const BODY_PAD_BOTTOM = 10;
+function fitWindowToContent() {
+  if (!L.fitWindow) return;
+  const parts = [
+    document.querySelector('.title'),
+    document.querySelector('.panel-wrap.collapsed') ? null : document.querySelector('.panel-wrap'),
+  ].filter(Boolean);
+  if (!parts.length) return;
+
+  let width = 0;
+  let bottom = 0;
+  for (const el of parts) {
+    const r = el.getBoundingClientRect();
+    if (!r.width && !r.height) continue;   // hidden element contributes nothing
+    if (r.width > width) width = r.width;
+    if (r.bottom > bottom) bottom = r.bottom;
+  }
+  if (!width || !bottom) return;
+
+  // Shadows are drawn outside the border box, so a few pixels of bleed are
+  // added — otherwise the window edge clips them.
+  const SHADOW = 26;
+  L.fitWindow(
+    Math.ceil(width) + BODY_PAD_X * 2 + SHADOW,
+    Math.ceil(bottom - BODY_PAD_TOP) + BODY_PAD_TOP + BODY_PAD_BOTTOM + SHADOW,
+  );
+}
+
+// Re-fit whenever the drawn size changes: switching panes, a reply arriving,
+// the transcript appearing, the composer growing with a long prompt.
+let fitQueued = false;
+function queueFit() {
+  if (fitQueued) return;
+  fitQueued = true;
+  requestAnimationFrame(() => { fitQueued = false; fitWindowToContent(); });
+}
+if (typeof ResizeObserver === 'function') {
+  const ro = new ResizeObserver(queueFit);
+  const watch = document.querySelector('.panel-wrap');
+  const pill = document.querySelector('.title');
+  if (watch) ro.observe(watch);
+  if (pill) ro.observe(pill);
+}
+window.addEventListener('load', queueFit);
 if (collapseBtn) {
   collapseBtn.addEventListener('click', () => {
     setCollapsed(!panelWrapEl.classList.contains('collapsed'));
