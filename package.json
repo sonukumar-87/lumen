@@ -13,7 +13,7 @@
     "dist:intel": "electron-builder --mac --x64"
   },
   "devDependencies": {
-    "electron": "^32.0.0",
+    "electron": "^33.2.1",
     "electron-builder": "^25.1.8",
     "fast-check": "^3.23.2",
     "vitest": "^2.1.9"
@@ -39,7 +39,9 @@
       "target": [
         {
           "target": "dmg",
-          "arch": ["arm64"]
+          "arch": [
+            "arm64"
+          ]
         }
       ],
       "hardenedRuntime": false,
@@ -57,8 +59,16 @@
       "title": "Lumen ${version}",
       "iconSize": 96,
       "contents": [
-        { "x": 130, "y": 220 },
-        { "x": 410, "y": 220, "type": "link", "path": "/Applications" }
+        {
+          "x": 130,
+          "y": 220
+        },
+        {
+          "x": 410,
+          "y": 220,
+          "type": "link",
+          "path": "/Applications"
+        }
       ]
     }
   }
