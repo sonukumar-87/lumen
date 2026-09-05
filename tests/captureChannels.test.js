@@ -143,8 +143,21 @@ describe('renderer wiring for system audio', () => {
     expect(rendererSrc).toMatch(/getDisplayMedia\(\{\s*video:\s*true,\s*audio:\s*true\s*\}\)/);
   });
 
-  it('drops the video track it only requested to satisfy macOS', () => {
-    expect(rendererSrc).toMatch(/getVideoTracks\(\)\.forEach/);
+  it('records an audio-only view without stopping the capture video track', () => {
+    // Stopping the video track ends the capture session on macOS and the
+    // loopback audio dies with it — the recorder then yields empty blobs
+    // forever and the channel is silently mute. Recording must run off a
+    // separate MediaStream built from the audio tracks instead.
+    const body = extractFunction(rendererSrc, 'startSystemChannel');
+    expect(body).toMatch(/new MediaStream\(audioTracks\)/);
+    expect(body).not.toMatch(/getVideoTracks\(\)[\s\S]*?\.stop\(\)/);
+  });
+
+  it('keeps a handle on the capture stream so teardown can stop it', () => {
+    expect(extractFunction(rendererSrc, 'startSystemChannel'))
+      .toMatch(/captureStream\s*=\s*stream/);
+    expect(extractFunction(rendererSrc, 'stopChannel'))
+      .toMatch(/captureStream/);
   });
 
   it('keeps the mic on getUserMedia, independent of the loopback stream', () => {
@@ -172,6 +185,40 @@ describe('renderer wiring for system audio', () => {
 
   it('screen share still requests audio: false so that path is unchanged', () => {
     expect(rendererSrc).toMatch(/getDisplayMedia\(\{\s*video:\s*\{\s*frameRate:\s*10\s*\},\s*audio:\s*false\s*\}\)/);
+  });
+});
+
+describe('silence gate', () => {
+  it('fails open when the meter never produced a reading', () => {
+    // peakRMS stuck at 0 with meterOk false means the meter is broken, not
+    // that the room is quiet. Gating on it would discard every chunk for the
+    // whole session — silent, total data loss.
+    const body = extractFunction(rendererSrc, 'enqueueChunk');
+    expect(body).toMatch(/ch\.meterOk\s*&&\s*peak\s*<\s*threshold/);
+  });
+
+  it('only trusts the meter once a non-zero sample is seen', () => {
+    expect(extractFunction(rendererSrc, 'attachSilenceMeter'))
+      .toMatch(/if\s*\(rms\s*>\s*0\)\s*ch\.meterOk\s*=\s*true/);
+  });
+
+  it('resumes a suspended AudioContext', () => {
+    // A suspended context's analyser returns silence forever.
+    expect(extractFunction(rendererSrc, 'attachSilenceMeter'))
+      .toMatch(/state\s*===\s*'suspended'[\s\S]{0,120}resume\(\)/);
+  });
+
+  it('gives the loopback channel a lower floor than the mic', () => {
+    // Mic audio runs through AGC; loopback does not, so it sits much lower.
+    const body = extractFunction(rendererSrc, 'channelSilenceFloor');
+    expect(body).toMatch(/'them'/);
+    const sandbox = new Function(`
+      let base = 0.018;
+      function readSilenceThreshold() { return base }
+      ${extractFunction(rendererSrc, 'channelSilenceFloor')}
+      return channelSilenceFloor;
+    `)();
+    expect(sandbox({ name: 'them' })).toBeLessThan(sandbox({ name: 'you' }));
   });
 });
 

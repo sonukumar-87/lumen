@@ -135,6 +135,7 @@ function hideStillPreview() {
 // Mic transcription
 const listenBtn = $('listen'), listenLabel = $('listen-label');
 const sysAudioToggle = $('sys-audio-toggle');
+const captureDiag = $('capture-diag');
 const transcriptWrap = $('transcript-wrap'), transcriptText = $('transcript-text'),
       transcriptLang = $('transcript-lang'), transcriptUse = $('transcript-use'),
       transcriptAppend = $('transcript-append'), transcriptClear = $('transcript-clear');
@@ -265,8 +266,23 @@ function createCaptureChannel(name, label) {
     analyser: null,
     rmsTimer: null,
     peakRMS: 0,
+    // Set once the meter observes a non-zero sample. Until then the silence
+    // gate stays open rather than trusting a reading of 0.
+    meterOk: false,
+    // Loopback capture keeps its original video track alive; recording runs
+    // off an audio-only view of it. Held separately so teardown stops both.
+    captureStream: null,
+    posted: 0,
+    dropped: 0,
     active: false,
   };
+}
+
+// Loopback levels sit well below a mic's, which runs through automatic gain
+// control. Reusing the mic's floor for system audio gates away normal speech.
+function channelSilenceFloor(ch) {
+  const base = readSilenceThreshold();
+  return ch.name === 'them' ? base / 6 : base;
 }
 const micChannel = createCaptureChannel('you', 'You');
 const sysChannel = createCaptureChannel('them', 'Them');
@@ -1359,6 +1375,12 @@ function attachSilenceMeter(ch) {
     const Ctx = window.AudioContext || window.webkitAudioContext;
     if (!Ctx) return;
     ch.audioCtx = new Ctx();
+    // A context created outside a user gesture starts suspended, and a
+    // suspended context's analyser returns silence forever. That reads as
+    // "every chunk is silent" and the channel goes permanently mute.
+    if (ch.audioCtx.state === 'suspended') {
+      ch.audioCtx.resume().catch(() => { /* gate fails open below */ });
+    }
     const src = ch.audioCtx.createMediaStreamSource(ch.stream);
     ch.analyser = ch.audioCtx.createAnalyser();
     ch.analyser.fftSize = 1024;
@@ -1374,6 +1396,9 @@ function attachSilenceMeter(ch) {
         let sum = 0;
         for (let i = 0; i < buf.length; i++) sum += buf[i] * buf[i];
         const rms = Math.sqrt(sum / buf.length);
+        // Any non-zero reading proves the meter is genuinely observing this
+        // stream, which is what licenses the silence gate to drop anything.
+        if (rms > 0) ch.meterOk = true;
         if (rms > ch.peakRMS) ch.peakRMS = rms;
       } catch (_) { /* ignore */ }
     }, 100);
@@ -1387,6 +1412,9 @@ function startChannel(ch, stream) {
   ch.nextAppendSeq = 0;
   ch.pending.clear();
   ch.inFlight = 0;
+  ch.posted = 0;
+  ch.dropped = 0;
+  ch.meterOk = false;
   attachSilenceMeter(ch);
 
   const pick = pickRecorderMime();
@@ -1425,8 +1453,15 @@ function stopChannel(ch) {
   if (ch.stream) {
     try { ch.stream.getTracks().forEach(t => t.stop()); } catch (e) { /* ignore */ }
   }
+  // The loopback capture outlives the audio-only view recorded from it, so it
+  // needs stopping explicitly or the screen-recording indicator stays lit.
+  if (ch.captureStream) {
+    try { ch.captureStream.getTracks().forEach(t => t.stop()); } catch (e) { /* ignore */ }
+    ch.captureStream = null;
+  }
   ch.stream = null;
   ch.recorder = null;
+  ch.meterOk = false;
   ch.active = false;
 }
 
@@ -1466,18 +1501,24 @@ async function startSystemChannel() {
     setStatus('mic only — system audio unavailable: ' + (e && e.message ? e.message : e), false);
     return false;
   }
-  if (!stream.getAudioTracks().length) {
+  const audioTracks = stream.getAudioTracks();
+  if (!audioTracks.length) {
     try { stream.getTracks().forEach(t => t.stop()); } catch (_) { /* ignore */ }
     setStatus('mic only — system audio returned no track (grant Screen Recording)', false);
     return false;
   }
-  // Drop the video track at once: holding a live screen capture burns CPU and
-  // lights the recording indicator for a stream we never read frames from.
-  stream.getVideoTracks().forEach((t) => {
-    try { t.stop(); } catch (_) { /* ignore */ }
-    try { stream.removeTrack(t); } catch (_) { /* ignore */ }
+  // Record from an audio-only VIEW of the capture, leaving the original
+  // stream — video track included — running untouched.
+  //
+  // Stopping the video track to save a little CPU ends the capture session
+  // itself on macOS, and the loopback audio dies with it: the recorder then
+  // produces empty blobs forever and the channel is silently mute. The video
+  // frames are simply never read instead.
+  sysChannel.captureStream = stream;
+  audioTracks[0].addEventListener('ended', () => {
+    setStatus('system audio ended — the capture was stopped', false);
   });
-  startChannel(sysChannel, stream);
+  startChannel(sysChannel, new MediaStream(audioTracks));
   return true;
 }
 
@@ -1499,6 +1540,7 @@ async function startWhisper() {
   }
   listening = true;
   updateListenUI();
+  startDiagTimer();
   if (sysOk) setStatus('listening — you + them', true);
   else setStatus('listening…', true);
 }
@@ -1508,6 +1550,7 @@ function stopWhisper() {
   captureChannels.forEach(stopChannel);
   listening = false;
   updateListenUI();
+  stopDiagTimer();
   updateStatusLine();
 }
 
@@ -1534,13 +1577,20 @@ function enqueueChunk(ch, blob, peakRMS) {
   // Drop near-silent chunks before they reach Whisper — prevents
   // hallucinated transcripts ("Thank you", "E aí", "Tchau", etc.) on
   // pauses or background-noise-only audio.
+  //
+  // The gate FAILS OPEN. If the meter never produced a reading for this
+  // channel, its peak is stuck at 0 and gating on it would discard every
+  // chunk for the whole session — turning a metering problem into total,
+  // silent data loss. Wasting a few Whisper calls is the cheaper failure.
   const peak = (typeof peakRMS === 'number') ? peakRMS : ch.peakRMS;
-  const threshold = readSilenceThreshold();
-  if (peak < threshold) {
+  const threshold = channelSilenceFloor(ch);
+  if (ch.meterOk && peak < threshold) {
+    ch.dropped += 1;
     // Skip silently — do NOT increment the channel's seq, do NOT post.
     return;
   }
   const seq = ch.chunkSeq++;
+  ch.posted += 1;
   ch.inFlight += 1;
   updateStatusLine();
   postChunk(ch, seq, blob);
@@ -1755,6 +1805,38 @@ function updateListenUI() {
     earEl.textContent = '🎤 off';
   }
 }
+// Per-channel capture diagnostics. A channel can fail in ways that produce no
+// error at all — a live track that carries only silence, or chunks discarded
+// by the silence gate — so the counters that distinguish those cases are shown
+// rather than left in the console.
+let diagTimer = null;
+function renderCaptureDiag() {
+  if (!captureDiag) return;
+  if (!listening) { captureDiag.textContent = 'Not listening.'; return; }
+  captureDiag.textContent = captureChannels.map((ch) => {
+    if (!ch.active) return `${ch.label.padEnd(5)} off`;
+    const live = ch.stream && ch.stream.getAudioTracks().some(t => t.readyState === 'live');
+    return [
+      ch.label.padEnd(5),
+      live ? 'track:live' : 'track:DEAD',
+      ch.meterOk ? `peak:${ch.peakRMS.toFixed(4)}` : 'peak:NO SIGNAL',
+      `floor:${channelSilenceFloor(ch).toFixed(4)}`,
+      `sent:${ch.posted}`,
+      `dropped:${ch.dropped}`,
+      `pending:${ch.inFlight}`,
+    ].join('  ');
+  }).join('\n');
+}
+function startDiagTimer() {
+  if (diagTimer) clearInterval(diagTimer);
+  diagTimer = setInterval(renderCaptureDiag, 500);
+  renderCaptureDiag();
+}
+function stopDiagTimer() {
+  if (diagTimer) { clearInterval(diagTimer); diagTimer = null; }
+  renderCaptureDiag();
+}
+
 // System-audio opt-out. Takes effect on the next Listen — a running capture is
 // left alone rather than torn down mid-sentence.
 function renderSysAudioToggle() {
