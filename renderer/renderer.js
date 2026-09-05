@@ -1864,9 +1864,6 @@ function setCollapsed(next) {
 // invisible rectangle that still sits over the screen and intercepts the
 // pointer. Measure the union of what is actually visible and ask the main
 // process to match it.
-const BODY_PAD_X = 12;   // body padding-left/right
-const BODY_PAD_TOP = 14;
-const BODY_PAD_BOTTOM = 10;
 function fitWindowToContent() {
   if (!L.fitWindow) return;
   const parts = [
@@ -1885,13 +1882,11 @@ function fitWindowToContent() {
   }
   if (!width || !bottom) return;
 
-  // Shadows are drawn outside the border box, so a few pixels of bleed are
-  // added — otherwise the window edge clips them.
-  const SHADOW = 26;
-  L.fitWindow(
-    Math.ceil(width) + BODY_PAD_X * 2 + SHADOW,
-    Math.ceil(bottom - BODY_PAD_TOP) + BODY_PAD_TOP + BODY_PAD_BOTTOM + SHADOW,
-  );
+  // Exactly the drawn bounds — no allowance for drop shadows. Padding the
+  // window out to fit them would put invisible, pointer-catching area back
+  // around the overlay, which is the thing being avoided; the shadows are
+  // kept tight enough in CSS that clipping is not noticeable.
+  L.fitWindow(Math.ceil(width), Math.ceil(bottom));
 }
 
 // Re-fit whenever the drawn size changes: switching panes, a reply arriving,
@@ -1953,6 +1948,9 @@ window.addEventListener('mousemove', (e) => {
 // Leaving the window entirely should not strand it in click-catching mode.
 window.addEventListener('mouseleave', () => setIgnoreMouse(true));
 window.addEventListener('blur', () => setIgnoreMouse(true));
+// Start transparent to the pointer. forward:true keeps mousemove arriving, so
+// the first move over the pill or panel switches it back.
+window.addEventListener('load', () => setIgnoreMouse(true));
 
 // Per-channel capture diagnostics. A channel can fail in ways that produce no
 // error at all — a live track that carries only silence, or chunks discarded
