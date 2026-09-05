@@ -137,6 +137,7 @@ function hideStillPreview() {
 const listenBtn = $('listen'), listenLabel = $('listen-label');
 const sysAudioToggle = $('sys-audio-toggle');
 const captureDiag = $('capture-diag');
+const autoFillToggle = $('autofill-toggle');
 const micDeviceSel = $('mic-device');
 const transcriptWrap = $('transcript-wrap'), transcriptText = $('transcript-text'),
       transcriptLang = $('transcript-lang'), transcriptUse = $('transcript-use'),
@@ -1653,6 +1654,18 @@ if (micDeviceSel) {
   }
 }
 
+if (autoFillToggle) {
+  const paint = () => {
+    autoFillToggle.textContent = autoFillEnabled() ? On : Off;
+    autoFillToggle.classList.toggle(active, autoFillEnabled());
+  };
+  autoFillToggle.addEventListener(click, () => {
+    try { localStorage.setItem(LS_AUTOFILL, autoFillEnabled() ? 0 : 1); } catch (_) {}
+    paint();
+  });
+  paint();
+}
+
 // Shown at most once per session, and only after a capture attempt has
 // actually failed — never pre-emptively, and never on a permission the app
 // merely believes is missing. System Settings is not opened automatically:
@@ -1846,6 +1859,9 @@ function drainAppendQueue(ch) {
     if (entry.ok && entry.text) {
       appendTranscriptEntry(ch, entry.text);
       renderTranscript();
+      // Their speech stages itself in the composer; yours retires it.
+      if (ch.name === 'them') autoFillFromThem(entry.text);
+      else softClearOnYou();
     }
   }
 }
@@ -1853,6 +1869,58 @@ function drainAppendQueue(ch) {
 // Record one attributed utterance and keep `finalTranscript` in sync as the
 // plain concatenation, so the Use / Append / Clear controls keep working on
 // exactly the string they always have.
+// ── Auto-fill the composer from their speech ────────────────────────────────
+// Their words flow into the input as they speak, so answering is one key
+// rather than select-copy-paste. When you start speaking, the pending text is
+// cleared after a short delay: you are answering, so the staged question is
+// stale — which removes the other reason the Clear button existed.
+//
+// Anything you typed yourself is never overwritten or wiped.
+const LS_AUTOFILL = 'lumen.capture.autoFill';
+function autoFillEnabled() {
+  try { return localStorage.getItem(LS_AUTOFILL) !== '0'; } catch (_) { return true; }
+}
+let inputFromSTT = false;
+let softClearTimer = null;
+
+function autoFillFromThem(text) {
+  if (!autoFillEnabled() || !input) return;
+  // Never clobber something the user is typing.
+  if (!inputFromSTT && input.value.trim().length > 0) return;
+  clearTimeout(softClearTimer);
+  input.classList.remove('stt-dimmed');
+  const current = inputFromSTT ? input.value.trim() : '';
+  input.value = current ? current + ' ' + text : text;
+  inputFromSTT = true;
+  autoResizeInput();
+}
+
+function softClearOnYou() {
+  if (!autoFillEnabled() || !inputFromSTT || !input) return;
+  // Dim first rather than wiping instantly — a short "mm-hm" while they are
+  // still talking should not throw away the question.
+  input.classList.add('stt-dimmed');
+  clearTimeout(softClearTimer);
+  softClearTimer = setTimeout(() => {
+    if (!inputFromSTT) return;
+    input.value = '';
+    inputFromSTT = false;
+    input.classList.remove('stt-dimmed');
+    autoResizeInput();
+  }, 2500);
+}
+
+// Typing by hand takes ownership of the box back from the auto-fill.
+if (input) {
+  input.addEventListener('keydown', (e) => {
+    if (e.key.length === 1 || e.key === 'Backspace' || e.key === 'Delete') {
+      inputFromSTT = false;
+      clearTimeout(softClearTimer);
+      input.classList.remove('stt-dimmed');
+    }
+  });
+}
+
 function appendTranscriptEntry(ch, text) {
   const last = transcriptEntries[transcriptEntries.length - 1];
   // Merge consecutive utterances from the same speaker into one entry so the

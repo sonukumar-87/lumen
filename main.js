@@ -323,11 +323,27 @@ ipcMain.on('lumen:open-perm-mic', () => {
 });
 
 // Permission status check — renderer can query this to show helpful UI
-ipcMain.handle('lumen:check-screen-perm', () => {
-  if (process.platform === 'darwin' && systemPreferences.getMediaAccessStatus) {
-    return systemPreferences.getMediaAccessStatus('screen');
-  }
-  return 'granted'; // non-macOS or old API
+// getMediaAccessStatus('screen') is unreliable: it reports 'denied' or
+// 'not-determined' even after Screen Recording has been granted, especially
+// for an unsigned build with no stable signature — which is exactly this one.
+// So a negative answer is double-checked by actually capturing a thumbnail:
+// if it contains any non-zero pixels, macOS is handing over real screen
+// content and the permission is genuinely in place.
+ipcMain.handle('lumen:check-screen-perm', async () => {
+  if (process.platform !== 'darwin' || !systemPreferences.getMediaAccessStatus) return 'granted';
+  const reported = systemPreferences.getMediaAccessStatus('screen');
+  if (reported === 'granted') return 'granted';
+  try {
+    const sources = await desktopCapturer.getSources({
+      types: ['screen'],
+      thumbnailSize: { width: 16, height: 16 },
+    });
+    for (const s of sources) {
+      const bmp = s.thumbnail && !s.thumbnail.isEmpty() ? s.thumbnail.toBitmap() : null;
+      if (bmp && bmp.some((b) => b !== 0)) return 'granted';
+    }
+  } catch (_) { /* fall through to the reported value */ }
+  return reported;
 });
 
 // LLM API proxy — routes fetch requests through the main process to bypass
