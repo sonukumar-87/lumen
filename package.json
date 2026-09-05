@@ -48,6 +48,7 @@
       "extendInfo": {
         "NSMicrophoneUsageDescription": "Lumen uses the microphone to transcribe what you say into a text prompt for the AI.",
         "NSCameraUsageDescription": "Lumen does not use the camera.",
+        "NSAudioCaptureUsageDescription": "Lumen captures system audio so it can transcribe the other participant in a call.",
         "NSScreenCaptureUsageDescription": "Lumen captures a single screen frame when you press the Screenshot button so you can ask the AI about what's on your screen."
       },
       "icon": "build/icon.icns"

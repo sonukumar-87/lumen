@@ -22,6 +22,15 @@ protocol.registerSchemesAsPrivileged([{
   privileges: { standard: true, secure: true, supportFetchAPI: true, corsEnabled: true, stream: true },
 }]);
 
+// macOS system-audio loopback (the "Them" channel via getDisplayMedia) does not
+// start on Electron 31–38 unless these Chromium features are enabled; without
+// them getDisplayMedia rejects with "Error starting capture" and the other
+// participant's audio silently never arrives. Electron 39+ wires this up
+// itself, where this is a harmless no-op. Must run before `app.ready` fires.
+if (process.platform === 'darwin') {
+  app.commandLine.appendSwitch('enable-features', 'MacLoopbackAudioForScreenShare,MacSckSystemAudioLoopbackOverride');
+}
+
 // Single-instance lock: a second launch focuses the existing window.
 if (!app.requestSingleInstanceLock()) { app.quit(); }
 app.on('second-instance', () => { if (win) { win.show(); win.focus(); } });
@@ -99,7 +108,15 @@ function createWindow() {
           return callback({});
         }
         const primaryScreen = sources.find(s => s.id.startsWith('screen:')) || sources[0];
-        callback({ video: primaryScreen, audio: false });
+        // Offer system-audio loopback alongside the video source. The renderer
+        // decides whether it actually wants it: the screen-share path asks for
+        // `audio: false` and still gets a video-only stream, while the Them
+        // capture channel asks for `audio: true` and receives the loopback.
+        // macOS needs the literal 'loopback' string; Windows takes a boolean.
+        const grant = { video: primaryScreen, audio: false };
+        if (process.platform === 'darwin') grant.audio = 'loopback';
+        else if (process.platform === 'win32') grant.audio = true;
+        callback(grant);
       } catch {
         if (process.platform === 'darwin') {
           shell.openExternal('x-apple.systempreferences:com.apple.preference.security?Privacy_ScreenCapture');
