@@ -22,6 +22,62 @@ const PAGE = `
 (async () => {
   const out = { stages: [] };
   const note = (stage, ok, detail) => out.stages.push({ stage, ok, detail });
+
+  // ── Microphone ─────────────────────────────────────────────────────────
+  // Runs first and independently of loopback: the mic failing when headphones
+  // are connected is a separate problem from system audio not being captured.
+  try {
+    let mic;
+    try {
+      mic = await navigator.mediaDevices.getUserMedia({
+        audio: { echoCancellation: true, noiseSuppression: true, autoGainControl: true },
+      });
+      note('mic.getUserMedia', true, 'resolved');
+    } catch (e) {
+      note('mic.getUserMedia', false, String(e && e.name) + ': ' + String(e && e.message || e));
+    }
+
+    // Device labels are only populated once a stream has been granted.
+    try {
+      const devs = await navigator.mediaDevices.enumerateDevices();
+      const ins = devs.filter((d) => d.kind === 'audioinput')
+        .map((d) => ({ id: d.deviceId, label: d.label }));
+      note('mic.devices', ins.length > 0, JSON.stringify(ins));
+    } catch (e) { note('mic.devices', false, String(e)); }
+
+    if (mic) {
+      const mt = mic.getAudioTracks()[0];
+      note('mic.track', !!mt && mt.readyState === 'live',
+        'label=' + JSON.stringify(mt && mt.label) + ' readyState=' + (mt && mt.readyState) +
+        ' muted=' + (mt && mt.muted) + ' settings=' + JSON.stringify(mt && mt.getSettings ? mt.getSettings() : {}));
+
+      const mctx = new AudioContext();
+      if (mctx.state === 'suspended') { try { await mctx.resume(); } catch (_) {} }
+      const msrc = mctx.createMediaStreamSource(mic);
+      const man = mctx.createAnalyser();
+      man.fftSize = 1024;
+      msrc.connect(man);
+      const mbuf = new Float32Array(man.fftSize);
+      let mpeak = 0, mnz = 0, mn = 0;
+      await new Promise((res) => {
+        const iv = setInterval(() => {
+          man.getFloatTimeDomainData(mbuf);
+          let s = 0;
+          for (let i = 0; i < mbuf.length; i++) s += mbuf[i] * mbuf[i];
+          const r = Math.sqrt(s / mbuf.length);
+          mn++; if (r > 0) mnz++; if (r > mpeak) mpeak = r;
+        }, 100);
+        setTimeout(() => { clearInterval(iv); res(); }, 6000);
+      });
+      note('mic.signal', mpeak > 0.0005,
+        'peakRMS=' + mpeak.toFixed(6) + ' nonZero=' + mnz + '/' + mn +
+        ' (SPEAK during this window; 0 here means the selected input is silent)');
+      try { mctx.close(); } catch (_) {}
+      mic.getTracks().forEach((x) => x.stop());
+    }
+  } catch (e) { note('mic.fatal', false, String(e)); }
+
+  // ── System audio (loopback) ────────────────────────────────────────────
   try {
     let stream;
     try {

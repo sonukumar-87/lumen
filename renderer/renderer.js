@@ -136,6 +136,7 @@ function hideStillPreview() {
 const listenBtn = $('listen'), listenLabel = $('listen-label');
 const sysAudioToggle = $('sys-audio-toggle');
 const captureDiag = $('capture-diag');
+const micDeviceSel = $('mic-device');
 const transcriptWrap = $('transcript-wrap'), transcriptText = $('transcript-text'),
       transcriptLang = $('transcript-lang'), transcriptUse = $('transcript-use'),
       transcriptAppend = $('transcript-append'), transcriptClear = $('transcript-clear');
@@ -1468,21 +1469,44 @@ function stopChannel(ch) {
 }
 
 // Open the microphone — the "You" channel.
+// Which input to record from. Empty means "follow the system default", which
+// is the behaviour that breaks when headphones connect: macOS moves the
+// default to the headset's own mic, and on Bluetooth that is frequently
+// silent or unusable. Pinning a device keeps recording from the one that
+// works no matter what gets plugged in.
+const LS_MIC_DEVICE = 'lumen.capture.micDeviceId';
+function preferredMicId() {
+  try { return localStorage.getItem(LS_MIC_DEVICE) || ''; } catch (_) { return ''; }
+}
+
 async function startMicChannel() {
   let stream;
+  const wanted = preferredMicId();
+  const constraints = {
+    echoCancellation: true,
+    noiseSuppression: true,
+    autoGainControl: true,
+  };
+  // exact: so a pinned device fails loudly rather than silently falling back
+  // to the default — which is the failure being avoided in the first place.
+  if (wanted) constraints.deviceId = { exact: wanted };
   try {
-    // Use the system default input (changes correctly when you plug in
-    // headphones). Processing stays on so Whisper gets the cleanest audio.
-    stream = await navigator.mediaDevices.getUserMedia({
-      audio: {
-        echoCancellation: true,
-        noiseSuppression: true,
-        autoGainControl: true,
-      },
-    });
+    stream = await navigator.mediaDevices.getUserMedia({ audio: constraints });
   } catch (e) {
-    reportError('mic-denied', e);
-    return false;
+    if (wanted) {
+      // The pinned device is gone (unplugged). Fall back to the default and
+      // say so, rather than leaving the user with no microphone at all.
+      setStatus('pinned microphone unavailable — using the system default', false);
+      try {
+        stream = await navigator.mediaDevices.getUserMedia({ audio: { ...constraints, deviceId: undefined } });
+      } catch (e2) {
+        reportError('mic-denied', e2);
+        return false;
+      }
+    } else {
+      reportError('mic-denied', e);
+      return false;
+    }
   }
   // Plugging in headphones switches the default input, which ends the track
   // bound to the old device. The stream stays "open" but goes permanently
@@ -1547,6 +1571,46 @@ async function startSystemChannel() {
   return true;
 }
 
+// Populate the input picker. Device labels stay blank until the page has held
+// a microphone stream at least once, so this is refreshed after listening
+// starts as well as on load.
+async function refreshMicDevices() {
+  if (!micDeviceSel || !navigator.mediaDevices || !navigator.mediaDevices.enumerateDevices) return;
+  let devices = [];
+  try { devices = await navigator.mediaDevices.enumerateDevices(); } catch (_) { return; }
+  const inputs = devices.filter((d) => d.kind === 'audioinput');
+  const current = preferredMicId();
+  micDeviceSel.innerHTML = '';
+  const def = document.createElement('option');
+  def.value = '';
+  def.textContent = 'System default (follows headphones)';
+  micDeviceSel.appendChild(def);
+  inputs.forEach((d, i) => {
+    const o = document.createElement('option');
+    o.value = d.deviceId;
+    o.textContent = d.label || ('Input ' + (i + 1));
+    micDeviceSel.appendChild(o);
+  });
+  micDeviceSel.value = inputs.some((d) => d.deviceId === current) ? current : '';
+}
+if (micDeviceSel) {
+  micDeviceSel.addEventListener('change', () => {
+    try { localStorage.setItem(LS_MIC_DEVICE, micDeviceSel.value); } catch (_) { /* ignore */ }
+    if (!listening) return;
+    // Switch immediately rather than waiting for the next session.
+    setStatus('switching microphone…', true);
+    stopChannel(micChannel);
+    startMicChannel().then((ok) => {
+      if (ok) updateStatusLine();
+      else setStatus('could not open that microphone', false);
+    });
+  });
+  refreshMicDevices();
+  if (navigator.mediaDevices && 'ondevicechange' in navigator.mediaDevices) {
+    navigator.mediaDevices.addEventListener('devicechange', refreshMicDevices);
+  }
+}
+
 // Shown at most once per session, and only after a capture attempt has
 // actually failed — never pre-emptively, and never on a permission the app
 // merely believes is missing. System Settings is not opened automatically:
@@ -1608,6 +1672,9 @@ async function startWhisper() {
   listening = true;
   updateListenUI();
   startDiagTimer();
+  // Labels are only exposed once a stream has been granted, so the picker is
+  // filled in properly now rather than showing "Input 1", "Input 2".
+  refreshMicDevices();
   if (sysOk) setStatus('listening — you + them', true);
   else setStatus('listening…', true);
 }
@@ -1984,9 +2051,13 @@ function renderCaptureDiag() {
   if (!listening) { captureDiag.textContent = header + '\nNot listening.'; return; }
   captureDiag.textContent = header + '\n' + captureChannels.map((ch) => {
     if (!ch.active) return `${ch.label.padEnd(5)} off`;
-    const live = ch.stream && ch.stream.getAudioTracks().some(t => t.readyState === 'live');
+    const tracks = ch.stream ? ch.stream.getAudioTracks() : [];
+    const live = tracks.some(t => t.readyState === 'live');
+    // Naming the device matters for the mic: when headphones connect, macOS
+    // can move the default onto a headset mic that produces nothing.
+    const dev = tracks[0] && tracks[0].label ? ' [' + tracks[0].label.slice(0, 28) + ']' : '';
     return [
-      ch.label.padEnd(5),
+      ch.label.padEnd(5) + dev,
       live ? 'track:live' : 'track:DEAD',
       ch.meterOk ? `peak:${ch.peakRMS.toFixed(4)}` : 'peak:NO SIGNAL',
       `floor:${channelSilenceFloor(ch).toFixed(4)}`,

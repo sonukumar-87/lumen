@@ -1079,6 +1079,14 @@
               <span style="font-size:12.5px;color:var(--fg);flex:1;">🎤 You — microphone</span>
               <span style="font-size:11px;color:var(--muted);">always on</span>
             </div>
+            <div class="row" style="display:flex;align-items:center;gap:8px;margin:0 0 4px;">
+              <select id="mic-device" style="flex:1;font-size:11.5px;padding:6px 8px;">
+                <option value="">System default (follows headphones)</option>
+              </select>
+            </div>
+            <p style="color:var(--muted); font-size:11px; margin:0 0 10px; line-height:1.5;">
+              Connecting headphones moves the system default to the headset's own microphone, which on Bluetooth is frequently silent. Pin a specific input here to keep recording from the one that works.
+            </p>
             <div class="row" style="display:flex;align-items:center;gap:8px;margin:0 0 8px;">
               <span style="font-size:12.5px;color:var(--fg);flex:1;">🔊 Them — system audio</span>
               <button class="btn ghost" id="sys-audio-toggle" style="font-size:11px;padding:3px 10px;">On</button>
