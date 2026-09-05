@@ -21,6 +21,11 @@ contextBridge.exposeInMainWorld('lumen', {
 
   setOpacity: (level, opts) => ipcRenderer.send('lumen:set-opacity', { level, instant: !!(opts && opts.instant) }),
 
+  // Hands mouse events back to whatever is behind the window while the pointer
+  // sits over a transparent gap. CSS pointer-events cannot do this on its own:
+  // the OS window keeps swallowing the click either way.
+  setIgnoreMouse: (ignore) => ipcRenderer.send('lumen:set-ignore-mouse', !!ignore),
+
   captureScreen: () => ipcRenderer.invoke('lumen:capture-screen'),
   checkScreenPerm: () => ipcRenderer.invoke('lumen:check-screen-perm'),
 

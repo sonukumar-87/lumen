@@ -53,16 +53,20 @@ function clampOpacity(level) {
 
 function createWindow() {
   const { width: sw, height: shh } = screen.getPrimaryDisplay().workAreaSize;
-  const W = Math.min(1200, Math.max(900, sw - 80));
-  const H = Math.min(800, Math.max(640, shh - 100));
+  // Sized to the overlay itself rather than to the screen. The window is
+  // transparent, so anything wider than the panel is invisible dead area that
+  // still swallows clicks — the window should be barely larger than the UI.
+  const W = Math.min(780, sw - 40);
+  const H = Math.min(700, shh - 60);
 
   win = new BrowserWindow({
     width: W,
     height: H,
-    x: Math.max(20, sw - W - 24),
-    y: Math.max(20, Math.round((shh - H) / 2)),
-    minWidth: 720,
-    minHeight: 520,
+    // Centred horizontally, like an overlay rather than a docked side panel.
+    x: Math.max(20, Math.round((sw - W) / 2)),
+    y: Math.max(20, Math.round((shh - H) / 2.4)),
+    minWidth: 380,
+    minHeight: 260,
     frame: false,
     transparent: true,
     backgroundColor: '#00000000',
@@ -211,6 +215,14 @@ app.whenReady().then(() => {
 app.on('activate', () => { if (!win) createWindow(); else { win.show(); win.focus(); } });
 app.on('will-quit', () => globalShortcut.unregisterAll());
 // Don't quit on window-all-closed — the global hotkey can resurrect the window.
+
+// Automatic click-through: the renderer reports whether the pointer is over
+// real UI or a transparent gap. The manual ⌘⇧T toggle wins while it is on, so
+// the two mechanisms cannot fight over the same flag.
+ipcMain.on('lumen:set-ignore-mouse', (_evt, ignore) => {
+  if (!win || clickThrough) return;
+  win.setIgnoreMouseEvents(!!ignore, { forward: true });
+});
 
 ipcMain.on('lumen:quit',     () => app.quit());
 ipcMain.on('lumen:hide',     () => win && win.hide());

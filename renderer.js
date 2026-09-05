@@ -89,7 +89,7 @@ const L = window.lumen || {
   platform: 'browser',
   quit() {}, hide() {}, minimize() {}, show() {},
   openScreenPerms() {}, openMicPerms() {},
-  setOpacity() {}, setIgnoreMouse() {},
+  setOpacity() {},
   captureScreen() { return Promise.resolve({ ok: false, error: 'browser' }); },
   onFocusInput() {}, onClickThroughChange() {}, onOpacityCycle() {},
 };
@@ -1805,65 +1805,6 @@ function updateListenUI() {
     earEl.textContent = '🎤 off';
   }
 }
-// ── Collapse / expand the panel ─────────────────────────────────────────────
-// Folds everything but the pill away, so the overlay can sit on screen taking
-// almost no space. Distinct from Hide (⌘⇧Space), which removes the window
-// entirely and needs a global hotkey to bring back — this stays clickable.
-const collapseBtn = $('collapse-btn');
-const panelWrapEl = document.querySelector('.panel-wrap');
-const LS_COLLAPSED = 'lumen.panelCollapsed';
-function setCollapsed(next) {
-  if (!panelWrapEl || !collapseBtn) return;
-  panelWrapEl.classList.toggle('collapsed', next);
-  collapseBtn.classList.toggle('collapsed', next);
-  const label = collapseBtn.querySelector('.tb-hide-label');
-  if (label) label.textContent = next ? 'Show' : 'Hide';
-  try { localStorage.setItem(LS_COLLAPSED, next ? '1' : '0'); } catch (_) { /* ignore */ }
-}
-if (collapseBtn) {
-  collapseBtn.addEventListener('click', () => {
-    setCollapsed(!panelWrapEl.classList.contains('collapsed'));
-  });
-  let startCollapsed = false;
-  try { startCollapsed = localStorage.getItem(LS_COLLAPSED) === '1'; } catch (_) { /* ignore */ }
-  setCollapsed(startCollapsed);
-}
-document.addEventListener('keydown', (e) => {
-  if ((e.metaKey || e.ctrlKey) && e.shiftKey && (e.key === 'h' || e.key === 'H')) {
-    e.preventDefault();
-    if (panelWrapEl) setCollapsed(!panelWrapEl.classList.contains('collapsed'));
-  }
-});
-
-// ── Click-through over transparent gaps ─────────────────────────────────────
-// The window is bigger than the visible overlay, and a transparent Electron
-// window still swallows every click over its empty area. CSS pointer-events
-// only stops the page reacting; it does not let the click reach the app
-// underneath. So the pointer position is sampled and, whenever it is over a
-// gap rather than the pill, panel or status strip, the window is told to
-// forward mouse events to whatever is behind it.
-let ignoringMouse = false;
-function pointerOverChrome(x, y) {
-  const el = document.elementFromPoint(x, y);
-  if (!el) return false;
-  // elementFromPoint returns the deepest hit element; anything inside a
-  // pointer-events:auto region counts as real UI.
-  return !!el.closest('.title, .panel-wrap, .modal-backdrop:not([hidden])');
-}
-function setIgnoreMouse(next) {
-  if (next === ignoringMouse) return;
-  ignoringMouse = next;
-  try { L.setIgnoreMouse && L.setIgnoreMouse(next); } catch (_) { /* ignore */ }
-}
-// forward:true keeps mousemove arriving while the window is ignoring clicks,
-// which is what lets the pointer re-enter the UI and switch the flag back.
-window.addEventListener('mousemove', (e) => {
-  setIgnoreMouse(!pointerOverChrome(e.clientX, e.clientY));
-});
-// Leaving the window entirely should not strand it in click-catching mode.
-window.addEventListener('mouseleave', () => setIgnoreMouse(true));
-window.addEventListener('blur', () => setIgnoreMouse(true));
-
 // Per-channel capture diagnostics. A channel can fail in ways that produce no
 // error at all — a live track that carries only silence, or chunks discarded
 // by the silence gate — so the counters that distinguish those cases are shown

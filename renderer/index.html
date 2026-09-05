@@ -151,6 +151,20 @@
     background-image:radial-gradient(circle, rgba(255,255,255,0.9) 1.2px, transparent 1.3px);
     background-size:4px 4px; background-position:center;
   }
+  /* Collapse control: folds the panel away and leaves the pill, so the app
+     can sit on screen taking almost no space until it is wanted again. */
+  .tb-hide {
+    -webkit-app-region: no-drag;
+    display:inline-flex; align-items:center; gap:5px;
+    padding:4px 10px; border-radius:var(--radius-pill);
+    border:none; background:transparent; color:var(--fg-dim);
+    font:inherit; font-size:12px; font-weight:500; cursor:pointer;
+    transition:background var(--t-fast), color var(--t-fast);
+  }
+  .tb-hide:hover { background:var(--fill-3); color:var(--fg); }
+  .tb-hide .chev { display:inline-block; font-size:10px; transition:transform var(--t-fast); }
+  .tb-hide.collapsed .chev { transform:rotate(180deg); }
+  .panel-wrap.collapsed { display:none; }
   .tb-divider { width:1px; height:20px; background:rgba(255,255,255,0.10); margin:0 2px; flex-shrink:0; }
   .tb-spacer { flex:1; min-width:8px; }
   .tb-live { display:inline-flex; gap:8px; font-size:11px; color:var(--muted); white-space:nowrap; }
@@ -863,6 +877,11 @@
       </span>
       <span class="brand-name"><b>LUMEN</b></span>
     </div>
+
+    <button id="collapse-btn" class="tb-hide nodrag" title="Collapse the panel (⌘⇧H) — the pill stays put">
+      <span class="tb-hide-label">Hide</span>
+      <span class="chev">⌃</span>
+    </button>
 
     <span class="tb-divider"></span>
 
