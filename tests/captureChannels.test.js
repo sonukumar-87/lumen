@@ -223,12 +223,22 @@ describe('silence gate', () => {
 });
 
 describe('device and permission recovery', () => {
-  it('checks Screen Recording before opening the loopback', () => {
-    // Denied, getDisplayMedia still resolves with a track that only carries
-    // silence — indistinguishable from the other person saying nothing.
+  it('never blocks capture on the reported permission status', () => {
+    // getMediaAccessStatus('screen') reports a stale 'denied' after every
+    // rebuild of an ad-hoc-signed build, because the new signature makes
+    // macOS treat it as a different app. Gating on it refused capture that
+    // would have succeeded and sent the user to System Settings for a
+    // permission they already had. The attempt itself is the only real check.
     const body = extractFunction(rendererSrc, 'startSystemChannel');
-    expect(body).toMatch(/checkScreenPerm/);
-    expect(body).toMatch(/!==\s*'granted'/);
+    expect(body).not.toMatch(/checkScreenPerm/);
+    expect(body).toMatch(/getDisplayMedia/);
+  });
+
+  it('explains the permission only after a real failure, and only once', () => {
+    const body = extractFunction(rendererSrc, 'explainScreenPermissionOnce');
+    expect(body).toMatch(/screenPermExplained/);
+    // Must not yank the user to System Settings on every attempt.
+    expect(body).not.toMatch(/openScreenPerms/);
   });
 
   it('reopens the mic when the input device changes', () => {

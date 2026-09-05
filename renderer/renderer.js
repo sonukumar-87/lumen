@@ -1509,28 +1509,12 @@ async function startMicChannel() {
 async function startSystemChannel() {
   if (!systemAudioEnabled()) return false;
 
-  // Loopback capture on macOS runs through ScreenCaptureKit, so it is gated by
-  // Screen Recording — not by the microphone permission. Denied, getDisplayMedia
-  // still resolves with a track that only ever carries silence, which looks
-  // exactly like "the other person said nothing". Check first and say so.
-  if (L.platform === 'darwin' && L.checkScreenPerm) {
-    try {
-      const perm = await L.checkScreenPerm();
-      if (perm !== 'granted') {
-        setStatus('mic only — Lumen needs Screen Recording permission to hear the other side', false);
-        addMsg('assistant', [
-          '**System audio needs Screen Recording permission.**',
-          '',
-          'On macOS the other participant\'s audio is captured through ScreenCaptureKit, which sits behind the Screen Recording permission — the microphone permission does not cover it.',
-          '',
-          'Open **System Settings → Privacy & Security → Screen Recording**, enable **Lumen**, then quit and reopen the app. macOS does not apply this permission to an already-running process.',
-        ].join('\n'));
-        L.openScreenPerms && L.openScreenPerms();
-        return false;
-      }
-    } catch (_) { /* fall through and let getDisplayMedia decide */ }
-  }
-
+  // NOTE: getMediaAccessStatus('screen') is NOT consulted here. For an
+  // ad-hoc-signed build it reports a stale 'denied' after every rebuild,
+  // because the new signature makes macOS treat the app as a different one.
+  // Blocking on it refused capture that would in fact have succeeded, and
+  // sent the user to System Settings for a permission they already had.
+  // The capture attempt itself is the only trustworthy check.
   let stream;
   try {
     // macOS loopback requires a video track in the request even though only
@@ -1538,12 +1522,14 @@ async function startSystemChannel() {
     stream = await navigator.mediaDevices.getDisplayMedia({ video: true, audio: true });
   } catch (e) {
     setStatus('mic only — system audio unavailable: ' + (e && e.message ? e.message : e), false);
+    explainScreenPermissionOnce();
     return false;
   }
   const audioTracks = stream.getAudioTracks();
   if (!audioTracks.length) {
     try { stream.getTracks().forEach(t => t.stop()); } catch (_) { /* ignore */ }
-    setStatus('mic only — system audio returned no track (grant Screen Recording)', false);
+    setStatus('mic only — system audio returned no track', false);
+    explainScreenPermissionOnce();
     return false;
   }
   // Record from an audio-only VIEW of the capture, leaving the original
@@ -1559,6 +1545,25 @@ async function startSystemChannel() {
   });
   startChannel(sysChannel, new MediaStream(audioTracks));
   return true;
+}
+
+// Shown at most once per session, and only after a capture attempt has
+// actually failed — never pre-emptively, and never on a permission the app
+// merely believes is missing. System Settings is not opened automatically:
+// being redirected there on every click is worse than a message that waits.
+let screenPermExplained = false;
+function explainScreenPermissionOnce() {
+  if (screenPermExplained || L.platform !== 'darwin') return;
+  screenPermExplained = true;
+  addMsg('assistant', [
+    '**System audio could not start.** The microphone still works, so you will be transcribed — the other side will not.',
+    '',
+    'On macOS the other participant\'s audio comes through ScreenCaptureKit, which sits behind **Screen Recording** — the microphone permission does not cover it.',
+    '',
+    'Open **System Settings → Privacy & Security → Screen Recording**, enable **Lumen**, then quit and reopen the app.',
+    '',
+    'If you have already granted it and this keeps returning: an unsigned build loses the permission whenever the app is rebuilt, because macOS ties the grant to the exact signature. Grant it once against a build you then stop rebuilding.',
+  ].join('\n'));
 }
 
 // Plugging in headphones changes the default input. The track bound to the old
@@ -1972,8 +1977,10 @@ refreshScreenPerm();
 
 function renderCaptureDiag() {
   if (!captureDiag) return;
-  const header = 'Screen Recording: ' + screenPermLabel
-    + (screenPermLabel === 'granted' ? '' : '   ← Them cannot work without this');
+  // Reported for information only. On an unsigned build this goes stale after
+  // a rebuild, so a live Them track is the real proof, not this line.
+  const header = 'Screen Recording (reported): ' + screenPermLabel
+    + (screenPermLabel === 'granted' ? '' : '  — may be stale after a rebuild; the Them row below is authoritative');
   if (!listening) { captureDiag.textContent = header + '\nNot listening.'; return; }
   captureDiag.textContent = header + '\n' + captureChannels.map((ch) => {
     if (!ch.active) return `${ch.label.padEnd(5)} off`;
