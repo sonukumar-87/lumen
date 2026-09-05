@@ -245,6 +245,17 @@ describe('device and permission recovery', () => {
     expect(rendererSrc).toMatch(/ResizeObserver/);
   });
 
+  it('caps panel height in px, never viewport units', () => {
+    // The window is sized FROM the panel's height, so a vh cap is circular:
+    // collapsed the window is ~40px tall, the cap computes to zero, and
+    // expanding can never grow the panel back. Same for shrinking.
+    const html = readFileSync(resolve(__dirname, '../renderer/index.html'), 'utf8');
+    const panelWrap = html.slice(html.indexOf('.panel-wrap {'), html.indexOf('.panel-wrap {') + 500);
+    expect(panelWrap).not.toMatch(/max-height:\s*calc\([^)]*vh/);
+    expect(panelWrap).toMatch(/max-height:\s*\d+px/);
+    expect(panelWrap).toMatch(/flex:\s*0\s+0\s+auto/);
+  });
+
   it('forwards mouse events over transparent gaps', () => {
     // CSS pointer-events does not stop the OS window swallowing the click.
     expect(mainSrc).toMatch(/setIgnoreMouseEvents\([\s\S]{0,60}forward:\s*true/);

@@ -232,8 +232,12 @@ ipcMain.on('lumen:set-ignore-mouse', (_evt, ignore) => {
 // panel collapses and whenever its content changes size.
 ipcMain.on('lumen:fit-window', (_evt, payload) => {
   if (!win || win.isDestroyed() || !payload) return;
-  const w = Math.max(200, Math.round(payload.width));
-  const h = Math.max(44, Math.round(payload.height));
+  // The renderer caps content in fixed pixels because it cannot use viewport
+  // units to size a window it is itself sizing, so the screen bound is
+  // applied here instead.
+  const area = screen.getDisplayMatching(win.getBounds()).workAreaSize;
+  const w = Math.min(Math.max(200, Math.round(payload.width)), area.width - 20);
+  const h = Math.min(Math.max(44, Math.round(payload.height)), area.height - 20);
   const b = win.getBounds();
   // Ignore sub-pixel churn: resizing on every rounding difference would feed
   // back into the renderer's own measurement and oscillate.
